@@ -291,6 +291,49 @@ body.horror #touch [data-btn="weapon"], body.horror #touch [data-btn="map"], bod
 #shop .item b { font-family: var(--cond); font-weight: 800; font-size: 19px; letter-spacing: 0.03em; }
 #shop .item small { display: block; font-size: 13px; color: rgba(251,250,246,0.65); }
 #shop .price { font-family: var(--display); font-size: 22px; color: var(--money); }
+#shop .item.on { background: rgba(242,182,50,0.1); border-color: rgba(242,182,50,0.6); }
+/* inventory */
+#inv .invBox { width: min(980px, 96vw); max-height: 88vh; display: grid; grid-template-rows: auto auto 1fr; gap: 12px; background: var(--panel); border-radius: 16px; padding: 18px 20px; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 20px 60px rgba(0,0,0,0.5); }
+#inv header { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+#inv header h2 { margin: 0; font-family: var(--display); font-weight: 400; font-size: clamp(30px, 4vw, 44px); text-transform: uppercase; letter-spacing: 0.01em; }
+#inv header p { margin: 0; flex: 1; color: rgba(251,250,246,0.75); font-size: 15px; }
+#inv header p b { color: var(--money); font-family: var(--cond); font-size: 18px; }
+#inv header .btn { padding: 8px 18px; font-size: 16px; box-shadow: none; background: rgba(255,255,255,0.1); }
+#invTabs { display: flex; gap: 6px; flex-wrap: wrap; }
+#invTabs button { border: 1px solid rgba(255,255,255,0.14); background: rgba(255,255,255,0.05); color: rgba(251,250,246,0.85); border-radius: 999px; padding: 6px 14px; font-family: var(--cond); font-weight: 800; font-size: 16px; letter-spacing: 0.06em; text-transform: uppercase; cursor: pointer; }
+#invTabs button.on { background: rgba(242,182,50,0.18); border-color: var(--trigo); color: #fff; }
+#invTabs button.empty { opacity: 0.5; }
+#invTabs i { font-style: normal; background: var(--trigo); color: #141414; border-radius: 999px; padding: 0 7px; margin-left: 4px; font-size: 13px; }
+.invMain { display: grid; grid-template-columns: 1fr 300px; gap: 14px; min-height: 0; }
+#invGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(108px, 1fr)); gap: 8px; align-content: start; overflow-y: auto; max-height: 60vh; padding: 3px; }
+#invGrid button { position: relative; display: grid; justify-items: center; align-content: start; gap: 4px; padding: 10px 6px 8px; border-radius: 12px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: inherit; font: inherit; cursor: pointer; min-height: 104px; }
+#invGrid button.on, #invGrid button:hover { background: rgba(242,182,50,0.14); border-color: var(--trigo); }
+#invGrid .ico { font-size: 34px; line-height: 1.1; }
+#invGrid b { font-family: var(--cond); font-weight: 700; font-size: 14px; line-height: 1.1; text-align: center; }
+#invGrid i { position: absolute; top: 6px; right: 8px; font-style: normal; font-family: var(--cond); font-weight: 800; font-size: 14px; color: var(--trigo); }
+#invGrid small { font-size: 12px; color: var(--money); }
+.invEmpty { grid-column: 1 / -1; color: rgba(251,250,246,0.65); font-size: 15px; line-height: 1.5; margin: 12px 4px; }
+#invInfo { background: rgba(255,255,255,0.04); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 10px; min-height: 220px; }
+#invInfo .big { font-size: 52px; line-height: 1; }
+#invInfo h3 { margin: 4px 0; font-family: var(--cond); font-weight: 800; font-size: 22px; letter-spacing: 0.02em; }
+#invInfo h3 i { font-style: normal; color: var(--trigo); }
+#invInfo p { margin: 0; color: rgba(251,250,246,0.75); font-size: 14px; line-height: 1.45; }
+#invInfo small { color: rgba(251,250,246,0.5); font-size: 12px; }
+#invInfo .acts { display: grid; gap: 6px; margin-top: auto; }
+#invInfo .acts button { border: 0; border-radius: 10px; padding: 10px 12px; font-family: var(--cond); font-weight: 800; font-size: 17px; letter-spacing: 0.05em; text-transform: uppercase; background: var(--teja); color: var(--cal); cursor: pointer; }
+#invInfo .acts button.off { background: rgba(255,255,255,0.08); color: rgba(251,250,246,0.55); cursor: default; }
+#invInfo .acts button.warn { background: #b8302a; }
+@media (max-width: 720px) { .invMain { grid-template-columns: 1fr; } #invGrid { max-height: 38vh; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); } #invInfo { min-height: 0; } #invInfo .big { font-size: 36px; } }
+/* fishing */
+#fishUI { position: absolute; left: 50%; bottom: max(150px, calc(env(safe-area-inset-bottom) + 140px)); transform: translateX(-50%); width: min(360px, 88vw); background: var(--panel); border-radius: 14px; padding: 10px 14px 9px; border: 1px solid rgba(255,255,255,0.12); text-align: center; pointer-events: none; z-index: 4; }
+#fishUI .fTitle { font-family: var(--cond); font-weight: 800; font-size: 20px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--trigo); }
+#fishUI.bite .fTitle { color: #ff6b5e; animation: wsBlink 0.4s steps(2) infinite; font-size: 26px; }
+#fishUI .fBar, #fishUI .fProg { position: relative; height: 12px; border-radius: 6px; background: rgba(0,0,0,0.5); overflow: hidden; margin-top: 7px; }
+#fishUI .fT { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #5fcf73, #f2b632 70%, #ff6b5e); }
+#fishUI .fT.hot { animation: wsBlink 0.25s steps(2) infinite; }
+#fishUI .fProg { height: 6px; }
+#fishUI .fProg b { display: block; height: 100%; width: 0; background: #6fc0ff; }
+#fishUI small { display: block; margin-top: 6px; font-size: 12px; color: rgba(251,250,246,0.7); }
 #streetBox { position: absolute; right: max(18px, env(safe-area-inset-right)); bottom: max(22px, env(safe-area-inset-bottom)); text-align: right; opacity: 0; }
 #streetBox.show { animation: streetIn 5s ease forwards; }
 @keyframes streetIn { 0% { opacity: 0; transform: translateX(20px); } 8% { opacity: 1; transform: none; } 80% { opacity: 1; } 100% { opacity: 0; } }

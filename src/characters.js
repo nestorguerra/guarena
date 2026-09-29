@@ -924,9 +924,13 @@ export class CharacterFactory {
     return c;
   }
   // LOD + shadow switching for every live character (called once per frame)
-  updateLods(camPos, shadows = true) {
+  // alt: a second viewpoint (the street seen from the windows of a house): each one takes the nearer of the two
+  updateLods(camPos, shadows = true, alt = null) {
     const k = 13 / this.lodNear;
-    for (const c of this.live) c.setDistance(c.object.position.distanceTo(camPos) * k, shadows);
+    for (const c of this.live) {
+      const d = c.object.position.distanceTo(camPos);
+      c.setDistance((alt ? Math.min(d, c.object.position.distanceTo(alt)) : d) * k, shadows);
+    }
   }
 }
 
@@ -1552,6 +1556,13 @@ export class Character {
         Q('handL', -0.35); Q('handR', -0.35);
         Q('head', 0.12, 0, 0); Q('spine', 0.05);
         open = 1; wantFace('scared', 1);
+      } else if (bs === 'fish') {
+        // a fishing rod held out over the water in both hands; the left one winds the reel while reeling in
+        const rl = this.reeling ? Math.sin(this.t * 15) : 0;
+        Q('armR', -0.95, -0.1, -0.2); Q('foreR', -0.55, -0.2); Q('handR', 0.1, -0.2, 0);
+        Q('armL', -0.8, 0.25, 0.3 + rl * 0.06); Q('foreL', -1.2 + rl * 0.3, 0.45); Q('handL', 0.1, 0, rl * 0.5);
+        Q('spine', 0.04); Q('head', 0.14, 0, 0);
+        grip = 1;
       } else if (bs === 'talk') {
         // standing and talking: one gesture after another, head nods on the stressed words
         const g = this.gestureStep(dt, true);

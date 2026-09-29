@@ -28,8 +28,8 @@ const STYLES = {
   rustico: { walls: [0xefe6d6, 0xe6d8c0, 0xf2eadc], floor: 'barro', wood: 'dark', fabric: [0x6a4a2a, 0x3a5a2a, 0x8a3a22, 0x4a3a2a], lamp: 0xffc890, beams: true, curtain: 0xd8c8a8 },
   moderno: { walls: [0xf4f4f0, 0xe8ecef, 0xefe9e1, 0xdfe6e0], floor: 'parquet', wood: 'pale', fabric: [0x4a5a6a, 0x8a8a84, 0x2f4f7a, 0x6a7a5a], lamp: 0xfff1dc, curtain: 0xeceae4 },
   alegre: { walls: [0xf7e3c8, 0xd9ecd8, 0xf3d5db, 0xd6e6f2, 0xf2ecb8], floor: 'terrazo', wood: 'white', fabric: [0xe8a33a, 0x3a8ab8, 0xd8263a, 0x5aa84a], lamp: 0xffe8c0, curtain: 0xf8e0c8 },
-  joven: { walls: [0xe8e8e8, 0x3a4450, 0xd9d4ea, 0xc8dce0], floor: 'parquet', wood: 'pale', fabric: [0x222222, 0x6a2a8a, 0x2a6a8a, 0xb83a3a], lamp: 0xe8f0ff, posters: true, curtain: 0x3a3a44 },
-  lujo: { walls: [0xf6f4ef, 0xe9e4da, 0x2e3a40, 0xe4dccf], floor: 'marmol', wood: 'walnut', fabric: [0xf0ece4, 0x2a2a2a, 0x8a6a3a, 0x3a4a5a], lamp: 0xfff4e0, curtain: 0xe8e0d0 },
+  joven: { walls: [0xe8e8e8, 0x6a7a8c, 0xd9d4ea, 0xc8dce0], floor: 'parquet', wood: 'pale', fabric: [0x222222, 0x6a2a8a, 0x2a6a8a, 0xb83a3a], lamp: 0xe8f0ff, posters: true, curtain: 0x3a3a44 },
+  lujo: { walls: [0xf6f4ef, 0xe9e4da, 0x66747c, 0xe4dccf], floor: 'marmol', wood: 'walnut', fabric: [0xf0ece4, 0x2a2a2a, 0x8a6a3a, 0x3a4a5a], lamp: 0xfff4e0, curtain: 0xe8e0d0 },
   bohemio: { walls: [0xe8d0b0, 0xc8d8c8, 0xe0c8d8, 0xf0dcc0], floor: 'parquet', wood: 'pale', fabric: [0xb8563a, 0x5a7a4a, 0xd8a83a, 0x7a4a8a], lamp: 0xffd8a8, plants: 2, curtain: 0xd8b890 },
 };
 
@@ -162,7 +162,7 @@ function antlerGeo() {
 }
 
 // a curtain hanging in soft folds (a plane waved across its width)
-function curtainGeo(w, h) {
+export function curtainGeo(w, h) {
   const g = new THREE.PlaneGeometry(w, h, 16, 1);
   const p = g.attributes.position;
   for (let i = 0; i < p.count; i++) { const x = p.getX(i); p.setZ(i, Math.sin((x / w) * Math.PI * 7) * 0.035); }
@@ -327,6 +327,7 @@ export function buildVecino(seed, origin = INTERIOR_ORIGIN) {
     B.add(M.wood, boxGeo(w + 0.12, 0.06, 0.22, 1), q2[0], y + 0.95, q2[1], ry);
     if (grille) for (let i = 0; i < 7; i++) { const q = P(-w / 2 + 0.12 + (i * (w - 0.24)) / 6, -0.08); B.add(M.iron, boxGeo(0.018, 1.1, 0.018, 1), q[0], y + 1.5, q[1], ry); }
     for (const sx of [-1, 1]) { const q = P(sx * (w / 2 + 0.06), 0.1); B.add(M.curtain, curtainGeo(0.38, 2.05), q[0], y + 1.2, q[1], ry); }
+    B.view(z < 1 ? 'f' : 'b', x - w / 2, y + 0.95, z - 0.12, x + w / 2, y + 2.05, z + 0.12); // the street shows through it
   };
   const lampAt = (x, z, y, area) => B.light(x, y - 0.33, z, S.lamp, Math.min(11, 4 + area * 0.32), Math.max(6, Math.sqrt(area) * 2.6));
 
@@ -543,8 +544,9 @@ export function buildVecino(seed, origin = INTERIOR_ORIGIN) {
   B.add(M.metal, boxGeo(0.06, 0.06, 0.1, 1), doorX + 0.38, 1.05, 0.12, 0);
   B.interact({ type: 'exit', x: doorX, z: 0.7, r: 1.1, label: 'Salir a la calle' });
   segs0.push([B.ox + doorX - 0.6, B.oz + 0.05, B.ox + doorX + 0.6, B.oz + 0.05, 2.2]);
-  // patio walls
+  // patio walls (over them, the roofs of the neighbours)
   B.wall(M.out, -hw, D1, -hw, D, 3.6); B.wall(M.out, hw, D1, hw, D, 3.6); B.wall(M.out, -hw, D, hw, D, 3.6);
+  B.view('b', -hw, 3.2, D1, hw, 40, D);
   if (S.zocalo) for (const rm of rooms) if (rm.lv === 0 && rm.type !== 'bano' && rm.type !== 'cocina') {
     // tiled skirting 1.1 m high round the room (skipping doors)
     for (const [side, ax, az, bx, bz] of [['s', rm.x0, rm.z0 + INSET - 0.07, rm.x1, rm.z0 + INSET - 0.07], ['n', rm.x0, rm.z1 - INSET + 0.07, rm.x1, rm.z1 - INSET + 0.07], ['w', rm.x0 + INSET - 0.07, rm.z0, rm.x0 + INSET - 0.07, rm.z1], ['e', rm.x1 - INSET + 0.07, rm.z0, rm.x1 - INSET + 0.07, rm.z1]]) {
@@ -585,7 +587,7 @@ export function buildVecino(seed, origin = INTERIOR_ORIGIN) {
   const takeLoot = (...ids) => { for (const id of ids) { const i = lootPool.indexOf(id); if (i >= 0) { lootPool.splice(i, 1); return id; } } return null; };
   const smallMesh = (geo, mat) => { const m = new THREE.Mesh(geo, typeof mat === 'string' ? B.mats.get(mat) : mat); m.castShadow = true; return m; };
   const picture = (tex, x, y, z, ry, w = 0.42, h = 0.52) => {
-    const m = new THREE.Mesh(planeGeo(w, h, w), new THREE.MeshStandardMaterial({ map: tex, roughness: 0.6 }));
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshStandardMaterial({ map: tex, roughness: 0.6 }));
     B.extraMesh(m, x, y, z, ry);
     B.add(M.wood, boxGeo(w + 0.05, h + 0.05, 0.02, 1), x - Math.sin(ry) * 0.016, y, z - Math.cos(ry) * 0.016, ry);
     return m;
@@ -632,7 +634,7 @@ export function buildVecino(seed, origin = INTERIOR_ORIGIN) {
     const p = rm.fitCenter(1.6, 1.1, r);
     if (!p) return;
     rm.boxes.pop(); // walkable
-    const m = new THREE.Mesh(planeGeo(1.8, 1.3, 1.8).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ map: rugTexture(Math.floor(r() * 1e6)), roughness: 1 }));
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(1.8, 1.3).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ map: rugTexture(Math.floor(r() * 1e6)), roughness: 1 }));
     B.extraMesh(m, p.x, (rm.lv ? F2 : 0) + 0.012, p.z);
   };
 
@@ -953,7 +955,7 @@ export function buildVecino(seed, origin = INTERIOR_ORIGIN) {
       const p = rm.fitCenter(0.8, 0.7, r); if (!p) return null;
       const y = rm.lv ? F2 : 0;
       for (const [a, b] of [[-0.25, 0.1], [0.25, 0.1], [0, -0.25]]) B.add(M.wood2, boxGeo(0.03, 1.7, 0.03, 1), p.x + a, y + 0.85, p.z + b);
-      const canvasM = new THREE.Mesh(planeGeo(0.7, 0.55, 0.7), new THREE.MeshStandardMaterial({ map: paintingTex(r), roughness: 0.8 }));
+      const canvasM = new THREE.Mesh(new THREE.PlaneGeometry(0.7, 0.55), new THREE.MeshStandardMaterial({ map: paintingTex(r), roughness: 0.8 }));
       B.extraMesh(canvasM, p.x, y + 1.25, p.z + 0.14, 0);
       foot(rm, 0.7, 0.5, p.x, p.z, 0, 1.5);
       return p;
@@ -1303,7 +1305,7 @@ export class HouseLife {
     const R = range * (pl.crouch ? 0.55 : 1);
     if (d > R) return false;
     if (d > 1.2 && Math.abs(wrapA(Math.atan2(dx, dz) - p.heading - (p.look || 0))) > 1.15) return false;
-    return g.map.collider.raycast(p.x, p.z, pl.pos.x, pl.pos.z, p.y + 1.5, pl.pos.y + (pl.crouch ? 0.7 : 1.2)) > 0.98;
+    return this.colOf(p).raycast(p.x, p.z, pl.pos.x, pl.pos.z, p.y + 1.5, pl.pos.y + (pl.crouch ? 0.7 : 1.2)) > 0.98;
   }
   hears(p) {
     const pl = this.g.player;
@@ -1462,7 +1464,7 @@ export class HouseLife {
     this.noiseT = Math.max(0, this.noiseT - dt);
     // the windows follow the daylight
     const day = 1 - (g.sky.night || 0);
-    if (this.h.winMat) this.h.winMat.emissiveIntensity = 0.1 + day * 0.75;
+    if (this.h.winMat && !this.h.clearGlass) this.h.winMat.emissiveIntensity = 0.1 + day * 0.75;
     let touching = false;
     for (const p of this.people) {
       p.seeT -= dt;
@@ -1548,10 +1550,16 @@ export class HouseLife {
     else this.bustT = 0;
   }
   goHome(p) { p.state = 'back'; p.path = null; }
+  // the walls of the storey this person is on (not necessarily the player's)
+  colOf(p) { const h = this.h; return h.levels ? h.levels[p.y > h.split ? 1 : 0] : this.g.map.collider; }
   step(p, speed, dt) {
+    // along their own storey, and never through a wall
+    const col = this.colOf(p);
+    const ox = p.x, oz = p.z;
     p.x += Math.sin(p.heading) * speed * dt; p.z += Math.cos(p.heading) * speed * dt;
     const pos = { x: p.x, z: p.z };
-    this.g.map.collider.resolveCircle(pos, 0.28);
+    col.resolveCircle(pos, 0.28);
+    if (col.crosses && col.crosses(ox, oz, pos.x, pos.z)) { pos.x = ox; pos.z = oz; }
     p.x = pos.x; p.z = pos.z;
     const fy = this.h.floorY ? this.h.floorY(p.x, p.z, p.y) : 0;
     p.y = fy;
@@ -1598,7 +1606,7 @@ export class HouseLife {
         p.shootT -= dt;
         if (p.shootT <= 0) { p.shootT = 1 + Math.random() * 0.8; g.police.officerShoot(p, pl.pos.x, pl.pos.z, d); }
       }
-      if (vis && d < 8 && g.map.collider.raycast(p.x, p.z, pl.pos.x, pl.pos.z, p.y + 1, pl.pos.y + 1) > 0.98) {
+      if (vis && d < 8 && this.colOf(p).raycast(p.x, p.z, pl.pos.x, pl.pos.z, p.y + 1, pl.pos.y + 1) > 0.98) {
         p.heading = dampA(p.heading, Math.atan2(pl.pos.x - p.x, pl.pos.z - p.z), 10, dt);
         if (d > 1.0) { this.step(p, 4.6, dt); return 4.6; }
         return 0;

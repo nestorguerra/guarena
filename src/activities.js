@@ -278,6 +278,7 @@ export class Activities {
 
   footOption() {
     const g = this.game, p = g.player;
+    if (g.fishing && g.fishing.active) return null; // the rod has the keys
     if (g.interior) return g.interiors.option();
     const J = g.jobs;
     if (J && g.mode === 'normal') {
@@ -287,7 +288,7 @@ export class Activities {
     if (g.interiors && g.interiors.picking) return { label: `Forzando la cerradura… <b>${g.interiors.pickPct} %</b>`, info: true };
     const hd = g.mode === 'normal' && g.interiors && g.interiors.doorNear(p.pos.x, p.pos.z, 1.8);
     if (hd && !this.armedAt(p)) {
-      if (hd.owner) return { label: `Entrar: ${hd.name}`, run: () => g.interiors.enter(hd, { mode: 'owner' }) };
+      if (hd.owner) { const nm = g.interiors.doorLabel(hd); return { label: nm === 'Tu casa' ? 'Entrar en tu casa' : `Entrar: ${nm}`, run: () => g.interiors.enter(hd, { mode: 'owner' }) }; }
       if (p.crouch) return { label: `Colarse en ${hd.name} <small>(forzar la cerradura)</small>`, run: () => g.interiors.sneakIn(hd) };
       return { label: `Llamar a la puerta: ${hd.name} <small>· ${g.gx('agachado', 'agachada')}, colarte</small>`, run: () => g.interiors.knock(hd) };
     }
@@ -323,12 +324,18 @@ export class Activities {
     }
     // the mercadillo's stalls (market days)
     if (g.mercadillo) { if (g.mercadillo.menu) return null; const mo = g.mercadillo.option(); if (mo) return mo; }
+    // fishing at the pantano (with a rod: before the jetty's bench), the fish stall at the market
+    const fo = g.fishing && g.inv.has('cana') && g.fishing.option();
+    if (fo) return fo;
+    const mo = g.fishing && g.fishing.marketOption();
+    if (mo && !mo.info) return mo;
     // somewhere to sit
     const seat = g.seats && !(g.weapons && g.weapons.aiming) && g.seats.near(p.pos.x, p.pos.z);
     if (seat) return { label: seat.kind === 'terraza' ? 'Sentarse en la terraza' : seat.kind === 'fresco' ? 'Sentarse con los vecinos' : seat.kind === 'banco' ? 'Sentarse en el banco' : 'Sentarse', run: () => g.seats.sit(seat) };
-    // gun shop
+    // the shops you can walk into, the gun shop among them (crouched or armed you are up to something else there)
+    if (!p.crouch && !this.armed() && g.shops) { const so = g.shops.option(); if (so) return so; }
     const gs = this.gunShop;
-    if (gs && Math.hypot(gs.x - p.pos.x, gs.z - p.pos.z) < 3) return { label: 'Entrar en la armería', run: () => this.openShop() };
+    if (gs && !(g.shops && g.shops.armeria) && Math.hypot(gs.x - p.pos.x, gs.z - p.pos.z) < 3) return { label: 'Entrar en la armería', run: () => this.openShop() };
     // bars (a drink first; right after one, the same door offers a job as a waiter)
     for (const b of this.bars) {
       if (b.cd > 0 || Math.hypot(b.x - p.pos.x, b.z - p.pos.z) > 3.2) continue;
@@ -373,6 +380,10 @@ export class Activities {
         return { label: 'Trabajar de Policía Local', run: () => J.hire(ay, 'policia') };
       }
     }
+    // last of all: the fish stall (nothing to sell yet) and a good spot to fish without a rod
+    if (mo) return mo;
+    const fn = g.fishing && g.fishing.option();
+    if (fn) return fn;
     return null;
   }
 
@@ -482,10 +493,13 @@ export class Activities {
   bindShop() {
     const ui = this.game.ui;
     if (!ui.shop) return;
-    ui.shopClose.addEventListener('click', () => this.closeShop());
+    // the counter list of a shop (Shops) or, without one, the old gun-shop panel
+    ui.shopClose.addEventListener('click', () => { const S = this.game.shops; if (S && S.store) S.closeStore(); else this.closeShop(); });
     ui.shopList.addEventListener('click', (e) => {
       const b = e.target.closest('button[data-i]');
-      if (b) this.buy(+b.dataset.i);
+      if (!b) return;
+      const S = this.game.shops;
+      if (S && S.store) S.buyAt(+b.dataset.i); else this.buy(+b.dataset.i);
     });
   }
   shopItems() {
@@ -795,6 +809,6 @@ export class Activities {
     if (this.holdup) this.holdup = null;
     if (this.taxi) this.endTaxi('Turno terminado');
     if (this.patrol) this.endPatrol('Patrulla terminada');
-    if (this.game.state === 'shop') this.closeShop();
+    if (this.game.state === 'shop') { if (this.game.shops && this.game.shops.store) this.game.shops.closeStore(); else this.closeShop(); }
   }
 }

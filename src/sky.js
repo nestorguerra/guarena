@@ -207,6 +207,17 @@ export class SkySystem {
     return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
   }
 
+  // the dome, the stars, the moon and the sun's shadow box around another point (the street seen from a window)
+  placeAt(focus) {
+    if (!this.lightDir) return;
+    this.dome.position.copy(focus); this.phys.position.copy(focus); this.stars.position.copy(focus);
+    this.moon.position.copy(focus).addScaledVector(this.moonDir, 3500);
+    const texel = (this.shadowSize * 2) / this.sun.shadow.mapSize.x;
+    this.sun.target.position.set(Math.round(focus.x / texel) * texel, 0, Math.round(focus.z / texel) * texel);
+    this.sun.position.copy(this.sun.target.position).addScaledVector(this.lightDir, 250);
+    this.sun.target.updateMatrixWorld();
+  }
+
   update(dt, focus, forceEnv = false) {
     const d = sunDirection(this.hour, this.sunDir);
     const alt = d.y;
@@ -232,6 +243,7 @@ export class SkySystem {
     this.stars.material.uniforms.uOpacity.value = this.night * (1 - (this.cloud || 0) * 0.5);
     // moon opposite-ish to the sun, high at night
     const md = new THREE.Vector3(-d.x * 0.6 + 0.2, Math.max(0.15, -d.y * 0.9 + 0.25), -d.z * 0.6 - 0.3).normalize();
+    this.moonDir = md;
     this.moon.position.copy(focus).addScaledVector(md, 3500);
     this.moon.material.opacity = this.night;
     // sun light
@@ -240,10 +252,12 @@ export class SkySystem {
       this.sun.color.copy(sunCol).lerp(new THREE.Color(1, 1, 1), 0.25);
       this.sun.intensity = 4.4 * smoothstep(-0.02, 0.16, alt);
       this.sun.position.copy(focus).addScaledVector(d, 250);
+      this.lightDir = (this.lightDir || new THREE.Vector3()).copy(d);
     } else {
       this.sun.color.setRGB(0.6, 0.7, 0.95);
       this.sun.intensity = 0.9 * this.night; // moonlight: soft blue light and long shadows
       this.sun.position.copy(focus).addScaledVector(md, 250);
+      this.lightDir = (this.lightDir || new THREE.Vector3()).copy(md);
     }
     const texel = (this.shadowSize * 2) / this.sun.shadow.mapSize.x;
     this.sun.target.position.set(Math.round(focus.x / texel) * texel, 0, Math.round(focus.z / texel) * texel);

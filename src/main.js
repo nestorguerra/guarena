@@ -477,6 +477,7 @@ function settingsHtml() {
   const times = [['Mañana', 10], ['Tarde', 17], ['Atardecer', 19.9], ['Noche', 23]];
   return `
     <div class="setting"><span>Calidad gráfica <small style="opacity:.6">(se aplica al recargar)</small></span><span class="seg" id="sQ">${Object.entries(QUALITY).map(([k, v]) => `<button data-q="${k}" class="${k === q ? 'on' : ''}">${v.name}</button>`).join('')}</span></div>
+    <div class="setting"><span>Resolución <small style="opacity:.6">(automática: baja un poco solo si el juego va a tirones)</small></span><span class="seg" id="sR"><button data-r="auto" class="${game.save.dynRes !== false ? 'on' : ''}">Automática</button><button data-r="fija" class="${game.save.dynRes === false ? 'on' : ''}">Fija</button></span></div>
     <div class="setting"><span>Hora del día</span><span class="seg" id="sT">${times.map(([n, h]) => `<button data-h="${h}">${n}</button>`).join('')}</span></div>
     <div class="setting"><span>Música (radio)</span><input id="sMus" type="range" min="0" max="1" step="0.05" value="${game.save.music ?? 0.55}"></div>
     <div class="setting"><span>Efectos</span><input id="sSfx" type="range" min="0" max="1" step="0.05" value="${game.save.sfx ?? 0.9}"></div>
@@ -492,6 +493,7 @@ function bindSettings() {
       if (!rl) { rl = document.createElement('button'); rl.id = 'sQReload'; rl.className = 'btn ghost'; rl.style.cssText = 'margin-left:8px;padding:6px 12px;font-size:14px'; rl.textContent = 'Recargar ahora'; rl.onclick = () => { game.persist(); location.reload(); }; seg.after(rl); }
     } else if (rl) rl.remove();
   }));
+  document.querySelectorAll('#sR button').forEach((b) => (b.onclick = () => { game.save.dynRes = b.dataset.r === 'auto'; game.persist(); document.querySelectorAll('#sR button').forEach((x) => x.classList.toggle('on', x === b)); }));
   document.querySelectorAll('#sT button').forEach((b) => (b.onclick = () => { game.sky.hour = parseFloat(b.dataset.h); game.sky.update(0, game.camera.position, true); game.render(); }));
   const mus = $('sMus'), sfx = $('sSfx'), sens = $('sSens');
   if (mus) mus.oninput = () => { game.save.music = +mus.value; audio.setVolumes({ music: +mus.value }); game.persist(); };
@@ -532,7 +534,8 @@ function controlsHtml() {
     <dt><kbd>L</kbd></dt><dd>Linterna (modos de terror) · luces del coche</dd>
     <dt><kbd>G</kbd></dt><dd>Sirena (en patrullas)</dd>
     <dt><kbd>M</kbd></dt><dd>Mapa y GPS</dd>
-    <dt><kbd>Tab</kbd></dt><dd>Móvil: mapa, mensajes, llamar a tus amigos (mantén <kbd>B</kbd> para hablar), enviar tu ubicación, trabajos, mochila, cámara y menú · <kbd>Esc</kbd> vuelve atrás</dd>
+    <dt><kbd>Tab</kbd></dt><dd>Móvil: mapa, mensajes, llamar a tus amigos (mantén <kbd>B</kbd> para hablar), enviar tu ubicación, trabajos, inventario, cámara y menú · <kbd>Esc</kbd> vuelve atrás</dd>
+    <dt><kbd>I</kbd></dt><dd>Inventario: comer, colocar muebles en tu casa, la caña de pescar, lo que vas a vender (<kbd>Q</kbd>/<kbd>E</kbd> cambian de pestaña)</dd>
     <dt><kbd>T</kbd></dt><dd>Multijugador: escribir en el chat (Intro para enviar)</dd>
     <dt><kbd>Esc</kbd> / <kbd>P</kbd></dt><dd>Pausa</dd>
   </dl>
@@ -573,7 +576,7 @@ function playLabel() {
 
 // ------------------------------------------------------------ menus with the gamepad (and Esc to go back)
 // The top visible screen gets spatial navigation: D-pad / left stick move the focus, A presses, B goes back.
-const BACK = { select: 'bBack', mp: 'mpBack', shop: 'shopClose', mapScreen: 'mClose', pause: 'pResume', editor: 'edBack' };
+const BACK = { select: 'bBack', mp: 'mpBack', shop: 'shopClose', mapScreen: 'mClose', pause: 'pResume', editor: 'edBack', inv: 'invClose' };
 function topScreen() { const v = [...document.querySelectorAll('.screen')].filter((s) => !s.hidden && s.id !== 'loading'); return v[v.length - 1] || null; }
 function focusables(root) { return [...root.querySelectorAll('button, input, select, [tabindex]:not([tabindex="-1"])')].filter((e) => !e.disabled && !e.hidden && e.offsetParent !== null); }
 function menuBack() {

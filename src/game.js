@@ -31,6 +31,13 @@ import { Phone } from './phone.js';
 import { FM } from './fm.js';
 import { CarInterior } from './carinterior.js';
 import { Interiors } from './interiors.js';
+import { WindowView } from './windowview.js';
+import { Inventory } from './items.js';
+import { InventoryUI } from './inventory.js';
+import { Decorator } from './decor.js';
+import { Shops } from './shops.js';
+import { Fishing } from './fishing.js';
+import { HomeSafe } from './home.js';
 import { Horror } from './horror.js';
 import { Zombies } from './zombies.js';
 import { Input } from './input.js';
@@ -141,6 +148,16 @@ export class Game {
     try { this.mercadillo.build(this.missions.places); } catch (e) { console.warn('mercadillo', e); }
     this.interiors = new Interiors(this);
     this.interiors.setup(this.activities);
+    this.windowView = new WindowView(this); // the real street through the windows of a house
+    // what you carry, the shops you can walk into, decorating your house, its safe, fishing at the pantano
+    this.inv = new Inventory(this);
+    this.decor = new Decorator(this);
+    this.shops = new Shops(this);
+    try { this.shops.setup(this.activities); } catch (e) { console.warn('shops', e); }
+    this.fishing = new Fishing(this);
+    try { this.fishing.setupMarket(this.activities); } catch (e) { console.warn('fishing', e); }
+    this.homeSafe = new HomeSafe(this);
+    this.invUI = new InventoryUI(this);
     this.horrorSys = new Horror(this);
     this.zombieSys = new Zombies(this);
     this.net = new Net(this); // multiplayer (only connects when the page comes from servidor.py)
@@ -279,6 +296,7 @@ export class Game {
     const q = this.map.nearestEdge(pt.x, pt.z, 80, (e) => e.walk && !e.blocked);
     const x = q ? q.x : pt.x, z = q ? q.z : pt.z;
     p.spawnAt(x, z, 0);
+    this.perfGrace();
     p.health = 100;
     p.armor = 0;
     if (this.weapons) this.weapons.aiming = false;
@@ -320,10 +338,13 @@ export class Game {
     this.hud.banner('HOSPITALIZADO', 'Te llevan al Centro de Salud de Guareña', 'dead', 4.2);
     this.missions.active && this.missions.fail('Has acabado en el centro de salud.');
     setTimeout(() => {
-      p.money = Math.max(0, p.money - Math.min(p.money, 100));
+      // the bill: 100 € and a tenth of what you carry (the money in your safe at home is never touched)
+      const bill = Math.min(p.money, 100 + Math.round(p.money * 0.1));
+      p.money -= bill;
       p.char.object.rotation.x = 0;
       this.respawn('salud');
-      this.hud.notify('Factura del hospital: −100 €. ¡Ten más cuidado!', 'info');
+      const home = this.save.bank || 0;
+      this.hud.notify(`Factura del hospital: −${bill} €.${home ? ` En tu casa sigues teniendo ${home.toLocaleString('es-ES')} € a salvo.` : ' Guarda dinero en la caja fuerte de tu casa y no lo perderás.'}`, 'info', 5);
     }, 4200);
   }
   onBusted() {
@@ -342,9 +363,11 @@ export class Game {
     this.hud.banner('DETENIDO', 'Pasas la noche en el cuartel de la Guardia Civil', 'dead', 4);
     this.missions.active && this.missions.fail('Te ha detenido la Guardia Civil.');
     setTimeout(() => {
-      p.money = Math.max(0, p.money - Math.min(p.money, 150));
+      const fine = Math.min(p.money, 150 + Math.round(p.money * 0.15));
+      p.money -= fine;
       this.respawn('guardia');
-      this.hud.notify('Multa: −150 €. La Benemérita no perdona.' + (hadGuns ? ' Te han requisado las armas.' : ''), 'info');
+      const home = this.save.bank || 0;
+      this.hud.notify(`Multa: −${fine} €. La Benemérita no perdona.` + (hadGuns ? ' Te han requisado las armas.' : '') + (home ? ` Lo de tu caja fuerte (${home.toLocaleString('es-ES')} €) sigue allí.` : ''), 'info', 5);
     }, 4000);
   }
   onCarjack(v) {
@@ -455,14 +478,16 @@ export class Game {
     this.time = (this.time || 0) + dt;
     const playing = this.state === 'play' || this.state === 'wasted' || this.state === 'busted';
     if (this.state === 'play') {
-      if (input.phone && this.phone) { this.phone.toggle(); }
-      if (input.pause && !(this.seats && this.seats.menuOpen) && !(this.mercadillo && this.mercadillo.menu) && !(this.phone && this.phone.open)) { this.ui.onPause && this.ui.onPause(); input.endFrame(); return; } // Esc closes the order card first
+      const listOpen = this.homeSafe.menu.open || (this.mercadillo && this.mercadillo.menu); // the D-pad belongs to the list
+      if (input.phone && this.phone && !listOpen) { this.phone.toggle(); }
+      if (input.pause && !(this.seats && this.seats.menuOpen) && !(this.mercadillo && this.mercadillo.menu) && !(this.phone && this.phone.open) && !this.homeSafe.menu.open && !this.decor.placing) { this.ui.onPause && this.ui.onPause(); input.endFrame(); return; } // Esc closes the order card first
+      if (input.inventory && !this.decor.placing && !this.homeSafe.menu.open && !(this.phone && this.phone.open)) { this.invUI.show(); input.endFrame(); return; }
       if (input.map && !this.interior) { this.hud.toggleMap(); this.state = 'map'; input.exitLock(); input.endFrame(); return; }
       if (input.radioNext && this.player.vehicle) { // R: next station (Mayús+R: back)
         if (this.player.vehicle.spec.twoWheel) this.hud.notify('Aquí no hay radio: ponla en el móvil (Radio).', 'info', 2.5);
         else this.fm.seek(input.shift ? -1 : 1, true);
       }
-      if (input.camToggle) {
+      if (input.camToggle && !listOpen) {
         if (this.player.vehicle || this.player.mode === 'passenger') {
           // far → close → from inside (the cabin) → far
           const c = this.cam, tw = this.player.vehicle && (this.player.vehicle.spec.twoWheel || this.player.vehicle.spec.shape === 'tractor');
@@ -480,7 +505,16 @@ export class Game {
       input.endFrame();
       return;
     } else if (this.state === 'shop') {
-      if (input.pause || input.interact) this.activities.closeShop();
+      if (input.pause || input.interact) { if (this.shops.store) this.shops.closeStore(); else this.activities.closeShop(); }
+      else if (this.shops.store) {
+        if (input.hit('ArrowDown') || input.hit('KeyS')) this.shops.moveSel(1);
+        if (input.hit('ArrowUp') || input.hit('KeyW')) this.shops.moveSel(-1);
+        if (input.hit('Enter')) this.shops.buyAt(this.shops.sel);
+      }
+      input.endFrame();
+      return;
+    } else if (this.state === 'inv') {
+      this.invUI.input(input);
       input.endFrame();
       return;
     } else if (this.state === 'ended') {
@@ -533,6 +567,9 @@ export class Game {
         this.peds.updateSpeech(dt);
       }
       this.interiors.update(dt);
+      this.shops.update(dt);
+      this.fishing.update(dt);
+      this.homeSafe.update();
       this.activities.update(dt);
       if (this.mode === 'normal') this.jobs.update(dt);
       this.seats.update(dt);
@@ -559,30 +596,44 @@ export class Game {
     if (this.mode === 'zombis') { const f = this.sky.fog; f.near = 18; f.far = 230; f.color.lerp(new THREE.Color(0.42, 0.36, 0.32), 0.5); }
     shared.uNight.value = night;
     shared.uNightLit.value = this.sky.hour > 23.5 || this.sky.hour < 6 ? 0.15 : 0.4;
-    this.world.update(dt, night, this.camera.position);
-    this.chars.updateLods(this.camera.position, this.q.shadows > 0);
+    // inside a house the town is still seen through its windows: stream it around the real building
+    const wv = this.interior && this.windowView && this.windowView.active ? this.windowView : null;
+    if (wv) wv.sync();
+    this.world.update(dt, night, wv ? wv.eye : this.camera.position);
+    this.chars.updateLods(this.camera.position, this.q.shadows > 0, wv ? wv.eye : null);
     this.render();
     input.endFrame();
   }
 
-  // dynamic resolution: drop the internal pixel ratio when the GPU can't keep ~45 fps, restore it when there is room
+  // dynamic resolution, gently: only a sustained slowdown (not a hiccup while the town streams in) lowers the internal
+  // resolution, by small steps and never below ~60 % of the chosen one; it comes back as soon as there is room.
+  // Ajustes › Resolución «Fija» turns it off. (It used to drop to 0.55 at the first stutter and stay there: the
+  // «the graphics get worse out of nowhere» of the testers.)
   adaptResolution(dtReal) {
     const r = this.renderer;
-    const pf = this.perf || (this.perf = { avg: 1 / 60, t: 0, pr: r.getPixelRatio(), base: r.getPixelRatio(), lock: 0 });
-    pf.avg = pf.avg * 0.95 + dtReal * 0.05;
+    const pf = this.perf || (this.perf = { avg: 1 / 60, t: 0, pr: r.getPixelRatio(), base: r.getPixelRatio(), lock: 0, slow: 0, fast: 0, grace: 8 });
+    if (this.save.dynRes === false) { if (pf.pr !== pf.base) { pf.pr = pf.base; r.setPixelRatio(pf.base); if (this.composer) this.composer.setPixelRatio(pf.base); this.resize(); } return; }
+    pf.grace -= dtReal;
+    if (pf.grace > 0) return; // the first seconds after starting / entering somewhere: everything is loading
+    pf.avg = pf.avg * 0.97 + dtReal * 0.03;
     pf.t += dtReal;
     pf.lock -= dtReal;
     if (pf.t < 2) return;
     pf.t = 0;
+    pf.slow = pf.avg > 1 / 38 ? pf.slow + 1 : 0;   // under ~38 fps
+    pf.fast = pf.avg < 1 / 50 ? pf.fast + 1 : 0;   // over ~50 fps
+    const floor = Math.max(0.75, pf.base * 0.6);
     let pr = pf.pr;
-    if (pf.avg > 1 / 44 && pr > 0.55) { pr = Math.max(0.55, pr - 0.15); pf.lock = 20; }
-    else if (pf.avg < 1 / 57 && pr < pf.base && pf.lock <= 0) pr = Math.min(pf.base, pr + 0.1);
+    if (pf.slow >= 3 && pr > floor) { pr = Math.max(floor, pr - 0.1); pf.lock = 6; pf.slow = 0; }       // 6 s in a row
+    else if (pf.fast >= 2 && pr < pf.base && pf.lock <= 0) { pr = Math.min(pf.base, pr + 0.1); pf.fast = 0; }
     if (Math.abs(pr - pf.pr) < 0.01) return;
     pf.pr = pr;
     r.setPixelRatio(pr);
     if (this.composer) this.composer.setPixelRatio(pr);
     this.resize();
   }
+  // a pause before judging the frame rate again (after a teleport, a respawn, a house…)
+  perfGrace(s = 6) { if (this.perf) { this.perf.grace = Math.max(this.perf.grace || 0, s); this.perf.slow = 0; } }
 
   updateAudio(dt) {
     const a = this.audio;
@@ -621,9 +672,11 @@ export class Game {
       this.bloom.threshold = lerp(1.8, 0.85, night);
       this.bloom.radius = lerp(0.3, 0.6, night);
     }
+    const wv = this.interior && this.windowView && this.windowView.render(); // the street, drawn for the windows
     if (this.retro && this.retroComposer) { this.retroPass.uniforms.uTime.value = performance.now() / 1000; this.retroComposer.render(); }
     else if (this.composer) this.composer.render();
     else this.renderer.render(this.scene, this.camera);
+    if (wv) this.windowView.after();
     // first-person gun on top
     if (this.viewModel && this.state === 'play' && !this.retro) this.viewModel.render(this.renderer);
   }

@@ -6,11 +6,14 @@ import * as THREE from 'three';
 import { StaticCollider } from './collision.js';
 import { mulberry32 } from './util.js';
 import { PERK } from './perks.js';
-import { INTERIOR_ORIGIN, WALL_H, T, boxGeo, planeGeo, cylGeo, pictureTexture, rugTexture, HouseBuilder, std, texMat, ringSegs } from './housekit.js';
-import { buildVecino, HouseLife, houseProfile, setDescMaker, COP_DESC_REF } from './houses.js';
+import { INTERIOR_ORIGIN, WALL_H, T, boxGeo, planeGeo, cylGeo, pictureTexture, rugTexture, HouseBuilder, std, texMat, ringSegs, glassMat } from './housekit.js';
+import { buildVecino, HouseLife, houseProfile, setDescMaker, COP_DESC_REF, curtainGeo } from './houses.js';
 import { randomDesc } from './characters.js';
 import { COP_DESC } from './police.js';
 import { hash1 } from './util.js';
+import { loadTexture } from './assets.js';
+import { buildShop } from './shops.js';
+import { ITEMS, lc } from './items.js';
 setDescMaker(randomDesc);
 Object.assign(COP_DESC_REF, COP_DESC);
 const wait = (ms) => new Promise((res) => setTimeout(res, ms));
@@ -93,6 +96,7 @@ export function buildHouse(kind = 'casa', seed = 1, origin = INTERIOR_ORIGIN) {
   B.wall(tOut, -hw, D1, hw, D1, WALL_H, [[hw - 3.6, hw - 2.3, 1.0, 2.0], [hw - 0.5, hw + 0.5, 0, 2.15]]);
   // roof slab over the house (seen from the patio)
   B.add(B.mat('rooftile', () => texMat('clay_roof_tiles_02', 0xffffff, 0.8)), boxGeo(W + 0.5, 0.25, D1 + 0.3, 2.5), 0, WALL_H + 0.15, D1 / 2);
+  B.view('b', -hw, 3.3, D1, hw, 40, D); // over the patio walls: the roofs of the neighbours
 
   // --- windows: frame, glass, closed roller shutter (persiana) and iron grille
   const windowAt = (x, z, ry, w = 1.5) => {
@@ -119,7 +123,7 @@ export function buildHouse(kind = 'casa', seed = 1, origin = INTERIOR_ORIGIN) {
   // --- furniture helpers
   const sheet = (w, h, d, x, z, ry = 0) => { if (horror && r() < 0.6) { B.block(mSheet, w + 0.1, h + 0.08, d + 0.1, x, 0, z, ry); return true; } return false; };
   const picture = (kind, x, y, z, ry, w = 0.45, h = 0.56) => {
-    const m = new THREE.Mesh(planeGeo(w, h, w), new THREE.MeshStandardMaterial({ map: pictureTexture(kind, Math.floor(r() * 1e6)), roughness: 0.6 }));
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshStandardMaterial({ map: pictureTexture(kind, Math.floor(r() * 1e6)), roughness: 0.6 }));
     B.extraMesh(m, x, y, z, ry);
     B.add(mDark, boxGeo(w + 0.06, h + 0.06, 0.02, 1), x - Math.sin(ry) * 0.018, y, z - Math.cos(ry) * 0.018, ry);
   };
@@ -178,7 +182,7 @@ export function buildHouse(kind = 'casa', seed = 1, origin = INTERIOR_ORIGIN) {
     B.interact({ type: 'tv', x: -3.2, z: 3.6, r: 0.9, label: 'Encender la tele', mesh: tvScreen });
     B.block(mDark, 0.35, 1.9, 1.1, -4.55, 0, 3.2, 0, 1.2);          // bookshelf
     for (let i = 0; i < 12; i++) B.add(B.mat('book' + (i % 4), () => std([0x7a2a22, 0x2a4a6a, 0x3a5a2a, 0xb89a5a][i % 4], { roughness: 0.8 })), boxGeo(0.22, 0.26, 0.05, 1), -4.5, 0.55 + Math.floor(i / 4) * 0.45, 2.8 + (i % 4) * 0.2);
-    const rug = new THREE.Mesh(planeGeo(2.0, 1.4, 2.0).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ map: rugTexture(seed), roughness: 1 }));
+    const rug = new THREE.Mesh(new THREE.PlaneGeometry(2.0, 1.4).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ map: rugTexture(seed), roughness: 1 }));
     B.extraMesh(rug, -3.2, 0.012, 2.3);
     picture(horror ? 'oscuro' : 'paisaje', -2.0, 1.65, 4.53, Math.PI);
     picture('virgen', -hw + 0.08, 1.7, 2.2, Math.PI / 2, 0.36, 0.48);
@@ -368,6 +372,7 @@ export function buildAnnieHouse(seed = 12, origin = INTERIOR_ORIGIN) {
   const mBlack = B.mat('black', () => std(0x141416, { roughness: 0.4 }));
   const mIron = B.mat('iron', () => std(0x1d1d1f, { roughness: 0.5, metalness: 0.6 }));
   const mShutter = B.mat('shutter', () => std(0xe8e1cf, { roughness: 0.8 }));
+  const glass = glassMat();
   const mSofa = B.mat('sofa', () => std(0x6a7f9a, { roughness: 0.95 }));
   const mPink = B.mat('pink', () => std(0xf4a6c0, { roughness: 0.95 }));
   const mSheet = B.mat('sheetw', () => std(0xfbf6f4, { roughness: 0.95 }));
@@ -386,7 +391,7 @@ export function buildAnnieHouse(seed = 12, origin = INTERIOR_ORIGIN) {
   const box = (key, w, h, d, x, y, z, ry = 0, tex = 1) => B.add(key, boxGeo(w, h, d, tex), x, y + h / 2, z, ry);
   const solid = (key, w, h, d, x, y, z, ry = 0, tex = 1) => { box(key, w, h, d, x, y, z, ry, tex); B.footprint(w, d, x, z, ry, Math.max(h, 0.5)); };
   const picture = (tex, x, y, z, ry, w = 0.42, h = 0.52) => {
-    B.extraMesh(new THREE.Mesh(planeGeo(w, h, w), new THREE.MeshStandardMaterial({ map: tex, roughness: 0.6 })), x, y, z, ry);
+    B.extraMesh(new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshStandardMaterial({ map: tex, roughness: 0.6 })), x, y, z, ry);
     B.add(mDark, boxGeo(w + 0.05, h + 0.05, 0.02, 1), x - Math.sin(ry) * 0.016, y, z - Math.cos(ry) * 0.016, ry);
   };
   const plant = (x, z, y = 0, big = false) => {
@@ -446,12 +451,29 @@ export function buildAnnieHouse(seed = 12, origin = INTERIOR_ORIGIN) {
   B.add(mMetal, boxGeo(0.06, 0.06, 0.1, 1), 0.38, 1.05, 0.12, 0);
   B.interact({ type: 'exit', x: 0, z: 0.7, r: 1.1, label: 'Salir a la calle' });
   segs0.push([B.ox - 0.6, B.oz + 0.05, B.ox + 0.6, B.oz + 0.05, 2.2]);
-  windowAt(-2.15, 0.03, 0);
+  // the window onto calle Malfeitos: persiana half up, glass, the iron grille outside
+  {
+    const x = -2.15, w = 1.3, hS = 0.45;
+    B.add(mShutter, boxGeo(w, hS, 0.04, 1), x, 2.05 - hS / 2, 0.02);
+    B.extraMesh(new THREE.Mesh(planeGeo(w - 0.04, 1.1 - hS, 1), glass), x, 0.95 + (1.1 - hS) / 2, 0.06, 0);
+    B.add(mWhite, boxGeo(0.04, 1.1 - hS, 0.05, 1), x, 0.95 + (1.1 - hS) / 2, 0.06);
+    for (let i = 0; i < 8; i++) B.add(mIron, boxGeo(0.02, 1.12, 0.02, 1), x - w / 2 + 0.1 + i * (w - 0.2) / 7, 1.5, -0.07);
+    B.add(mDark, boxGeo(w + 0.1, 0.08, 0.2, 1), x, 0.95, 0.03);
+    B.view('f', x - w / 2, 0.95, -0.12, x + w / 2, 2.05, 0.12);
+  }
   // door leaves
   B.doorLeaf(mDark, mMetal, 1.5, 3.8, 1, 0, 1, 1.5);
   B.doorLeaf(mDark, mMetal, 0.9, 4.25, 0, 1, -1, 1.45);
   B.doorLeaf(mDark, mMetal, 0.9, 9.3, 0, 1, -1, 1.3, 0.8);
   B.doorLeaf(mDark, mMetal, 1.25, D1, 1, 0, -1, 1.55);
+  // the bathroom window onto the patio: white frame, frosted glass, a sill
+  {
+    const cx = -hw + 1.3, w = 1.0;
+    B.add(mWhite, boxGeo(w + 0.12, 0.05, 0.24, 1), cx, 1.185, D1 - 0.03);
+    for (const sx of [-1, 1]) B.add(mWhite, boxGeo(0.05, 0.7, 0.12, 1), cx + sx * (w / 2 - 0.025), 1.55, D1);
+    B.add(mWhite, boxGeo(w, 0.05, 0.12, 1), cx, 1.875, D1);
+    B.add(B.mat('frosted', () => std(0xe8eef0, { roughness: 0.5, transparent: true, opacity: 0.82 })), boxGeo(w - 0.06, 0.64, 0.01, 1), cx, 1.55, D1);
+  }
   // --- saloncito: two-seater sofa and an armchair round a small table, the telly, shelves, a rug
   {
     solid(mSofa, 0.85, 0.42, 1.8, -2.72, 0, 1.9);
@@ -478,7 +500,7 @@ export function buildAnnieHouse(seed = 12, origin = INTERIOR_ORIGIN) {
         x += w + 0.004;
       }
     }
-    const rug = new THREE.Mesh(planeGeo(1.8, 1.3, 1.8).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ map: rugTexture(seed), roughness: 1 }));
+    const rug = new THREE.Mesh(new THREE.PlaneGeometry(1.8, 1.3).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ map: rugTexture(seed), roughness: 1 }));
     B.extraMesh(rug, -1.6, 0.012, 1.9);
     picture(pictureTexture('paisaje', seed), -hw + 0.08, 1.65, 1.9, Math.PI / 2, 0.7, 0.5);
     picture(pictureTexture('foto', seed + 1), 0.9, 1.6, 3.72, Math.PI, 0.3, 0.38);
@@ -547,6 +569,7 @@ export function buildAnnieHouse(seed = 12, origin = INTERIOR_ORIGIN) {
     for (let i = 0; i < 3; i++) B.add(B.mat('cloth' + i, () => std([0xf4a6c0, 0xf4f4f0, 0x88a9c9][i], { roughness: 1, side: THREE.DoubleSide })), planeGeo(0.45, 0.55, 1), -2.2, 1.75, 11.4 + i * 0.8, Math.PI / 2);
     B.light(0, 2.7, D1 + 0.3, 0xffe8c0, 4, 6);
     B.spots.patio = { x: B.ox + 0.8, z: B.oz + 12.8 };
+    B.view('b', -hw, 3.2, D1, hw, 40, DP); // the sky over the patio, the neighbours' roofs
   }
 
   // ================================================================ upper floor
@@ -566,6 +589,19 @@ export function buildAnnieHouse(seed = 12, origin = INTERIOR_ORIGIN) {
   B.wall(mWall(tints[1]), -hw, SZ0, -hw, D1, H2, [], Y); B.wall(mWall(tints[2]), hw, SZ0, hw, D1, H2, [], Y);
   B.wall(mWall(tints[1]), -hw, D1, hw, D1, H2, [[0.9, 1.8, 1.1, 1.9], [4.8, 5.8, 1.1, 1.9]], Y);
   B.wall(mOut, -hw, D1 + 0.02, hw, D1 + 0.02, H2 + 0.3, [[0.9, 1.8, 1.1, 1.9], [4.8, 5.8, 1.1, 1.9]], Y, false);
+  // the eave over the patio: a row of clay tiles on the top of the back wall
+  B.add(B.mat('rooftile', () => texMat('clay_roof_tiles_02', 0xffffff, 0.8)), boxGeo(W + 0.3, 0.12, 0.7, 2.5).rotateX(0.32), 0, Y + H2 + 0.36, D1 + 0.28);
+  // the two windows at the back, over the patio: white frame, glass, sill, the persiana nearly all the way up
+  for (const [x0, x1] of [[-hw + 0.9, -hw + 1.8], [-hw + 4.8, -hw + 5.8]]) {
+    const cx = (x0 + x1) / 2, w = x1 - x0;
+    B.add(mWhite, boxGeo(w + 0.12, 0.05, 0.26, 1), cx, Y + 1.085, D1 - 0.03);
+    for (const sx of [-1, 1]) B.add(mWhite, boxGeo(0.05, 0.8, 0.12, 1), cx + sx * (w / 2 - 0.025), Y + 1.5, D1);
+    B.add(mWhite, boxGeo(w, 0.05, 0.12, 1), cx, Y + 1.875, D1);
+    B.add(mWhite, boxGeo(0.04, 0.72, 0.05, 1), cx, Y + 1.5, D1);
+    B.extraMesh(new THREE.Mesh(planeGeo(w - 0.06, 0.74, 1), glass), cx, Y + 1.5, D1 + 0.01, Math.PI);
+    B.add(mShutter, boxGeo(w, 0.2, 0.03, 1), cx, Y + 1.79, D1 + 0.06);
+    B.view('b', x0, Y + 1.1, D1 - 0.12, x1, Y + 1.9, D1 + 0.12);
+  }
   B.wall(mWall(tints[3]), -hw, SZ0, hw, SZ0, H2, [door(1.0 + hw)], Y); // bedroom wall, door at the end of the landing hall
   B.wall(mWall(tints[1]), 0.9, SZ0, 0.9, D1, H2, [door(5.85 - SZ0), door(9.5 - SZ0)], Y);
   B.wall(mWall(tints[1]), -hw, 7.4, 0.9, 7.4, H2, [], Y);
@@ -616,18 +652,34 @@ export function buildAnnieHouse(seed = 12, origin = INTERIOR_ORIGIN) {
     B.interact({ type: 'mirror', x: 1.8, z: 0.95, r: 0.7, y: Y, label: 'Arreglarse en el tocador' });
     box(mPale, 0.42, 0.04, 0.42, 1.8, Y + 0.44, 0.85); // stool
     // balcony door on the street side (shutter half down) and a rug
-    B.add(mShutter, boxGeo(1.0, 0.95, 0.04, 1), -0.8, Y + 1.7, 0.03, 0);
-    B.add(B.mat('glassb', () => std(0xbfd8e8, { roughness: 0.05, metalness: 0.3, transparent: true, opacity: 0.45, emissive: 0x8ab0d0, emissiveIntensity: 0.4 })), boxGeo(0.96, 1.1, 0.02, 1), -0.8, Y + 0.65, 0.05, 0);
+    B.add(mShutter, boxGeo(1.0, 0.6, 0.04, 1), -0.8, Y + 1.85, 0.03, 0);
+    B.extraMesh(new THREE.Mesh(planeGeo(0.94, 1.45, 1), glass), -0.8, Y + 0.83, 0.06, 0);
+    for (const x of [-1.27, -0.33]) B.add(mWhite, boxGeo(0.05, 1.55, 0.08, 1), x, Y + 0.78, 0.05);
+    B.add(mWhite, boxGeo(0.04, 1.45, 0.05, 1), -0.8, Y + 0.83, 0.06);
+    B.add(mWhite, boxGeo(0.98, 0.06, 0.08, 1), -0.8, Y + 0.08, 0.05);
+    B.view('f', -1.3, Y, -0.12, -0.3, Y + 2.15, 0.12);
     for (let i = 0; i < 9; i++) B.add(mIron, boxGeo(0.018, 1.0, 0.018, 1), -1.25 + i * 0.112, Y + 0.5, -0.08);
     B.add(mIron, boxGeo(1.02, 0.03, 0.04, 1), -0.8, Y + 1.0, -0.08);
     const rug2 = new THREE.Mesh(planeGeo(1.6, 1.1, 1.6).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0xf6c6d6, roughness: 1 }));
     B.extraMesh(rug2, bx, Y + 0.012, 2.2);
     plant(-2.9, 3.3, Y, false);
-    for (const x of [-1.42, -0.18]) B.add(B.mat('curtainP', () => std(0xf8dce6, { roughness: 1, side: THREE.DoubleSide })), boxGeo(0.3, 2.2, 0.04, 1), x, Y + 1.15, 0.12);
+    for (const x of [-1.47, -0.13]) B.add(B.mat('curtainP', () => std(0xf8dce6, { roughness: 1, side: THREE.DoubleSide })), curtainGeo(0.36, 2.2), x, Y + 1.15, 0.13);
+    box(mMetal, 1.7, 0.025, 0.025, -0.8, Y + 2.27, 0.13); // curtain rail
     box(mPale, 0.9, 0.03, 0.22, 3.02, Y + 1.6, 3.6, Math.PI / 2);
     for (let i = 0; i < 6; i++) box(B.mat('bookP' + (i % 3), () => std([0xe87aa4, 0x88a9c9, 0xf2d230][i % 3], { roughness: 0.8 })), 0.16, 0.2, 0.04, 3.02, Y + 1.63, 3.3 + i * 0.07);
     picture(pictureTexture('foto', seed + 20), hw - 0.08, Y + 1.5, 2.2, -Math.PI / 2, 0.3, 0.38);
     B.interact({ type: 'bed', x: bx + 0.95, z: 3.0, r: 1.0, y: Y, label: 'Echarse una siesta en su cama' });
+    // the safe, on the floor against the right wall: what is in it is never lost (a hospital bill, a fine…)
+    {
+      const sx = hw - 0.34, sz = 2.75;
+      const mSafe = B.mat('safe', () => std(0x3a3f46, { roughness: 0.35, metalness: 0.65 }));
+      solid(mSafe, 0.46, 0.56, 0.5, sx, Y, sz);
+      box(mMetal, 0.02, 0.44, 0.38, sx - 0.24, Y + 0.06, sz);
+      const dial = new THREE.Mesh(cylGeo(0.05, 0.05, 0.03, 18).rotateZ(Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0xc8ccd0, roughness: 0.25, metalness: 0.9 }));
+      B.extraMesh(dial, sx - 0.26, Y + 0.34, sz + 0.08);
+      box(mMetal, 0.04, 0.03, 0.16, sx - 0.26, Y + 0.22, sz - 0.1);
+      B.interact({ type: 'safe', x: sx - 0.7, z: sz, r: 0.75, y: Y, label: 'Caja fuerte' });
+    }
     B.light(-0.6, Y + H2 - 0.33, 2.3, 0xffe2d0, 7, 7);
     B.spots.dormAnnie = { x: B.ox + 0.4, z: B.oz + 2.6 };
   }
@@ -705,6 +757,9 @@ export class Interiors {
   // a few marked street doors around town (and Annie's house in calle Malfeitos)
   setup(activities) {
     const g = this.game, map = g.map;
+    // the scans the houses are made of, fetched now: the first time you step inside, the walls are not black
+    for (const n of ['floor_tiles_06', 'dark_wood', 'painted_plaster_wall', 'white_rough_plaster', 'long_white_tiles', 'herringbone_parquet', 'granite_wall',
+      'clay_roof_tiles_02', 'rock_tile_floor', 'concrete_floor_damaged_01', 'decrepit_wallpaper', 'corrugated_iron', 'brick_wall_02', 'white_plaster_02']) loadTexture(n, '_d');
     const picks = [];
     const home = { x: 112.6, z: -171.4 };
     // snap the marker to a real 3D front door of that house when there is one close by
@@ -745,6 +800,11 @@ export class Interiors {
     }
   }
 
+  // your own house is «Tu casa» unless you are Annie herself
+  doorLabel(d) {
+    const p = this.game.player, me = p && p.char && p.char.desc;
+    return d.owner === 'annie' && !(me && me.id === 'annie') ? 'Tu casa' : d.name;
+  }
   doorNear(x, z, r = 2.2) {
     let best = null, bd = r;
     for (const d of this.doors) { const dd = Math.hypot(d.x - x, d.z - z); if (dd < bd) { bd = dd; best = d; } }
@@ -763,20 +823,21 @@ export class Interiors {
   async enter(door, { kind = 'casa', seed = door ? door.seed : 1, silent = false, spot = 'entrada', mode = 'sneak' } = {}) {
     const g = this.game, p = g.player;
     if (this.entering) return null; // a second press during the fade
-    if (door && door.x !== undefined && g.mode === 'normal' && !this.house) g.police.onHide('house', door); // did the police see you go in?
+    if (door && door.x !== undefined && !door.shop && g.mode === 'normal' && !this.house) g.police.onHide('house', door); // did the police see you go in?
     this.entering = true;
     try { if (!silent) await this.fade(true); } finally { this.entering = false; }
     this.leave(true);
     // where to come back to in town if we leave without using the door (mode change, death…)
     if (Math.abs(p.pos.x - INTERIOR_ORIGIN.x) > 500) this.returnTo = { x: p.pos.x, z: p.pos.z, h: p.heading };
-    const vecino = kind === 'casa' && door && !door.owner && door.seed >= 1000;
-    const h = door && door.owner === 'annie' && kind === 'casa' ? buildAnnieHouse(seed) : vecino ? buildVecino(seed) : buildHouse(kind, seed);
+    const vecino = kind === 'casa' && door && !door.owner && !door.shop && door.seed >= 1000;
+    const h = door && door.shop ? buildShop(door.shop, seed, undefined, door.name) : door && door.owner === 'annie' && kind === 'casa' ? buildAnnieHouse(seed) : vecino ? buildVecino(seed) : buildHouse(kind, seed);
     this.house = h;
     this.root.add(h.group);
     this.current = door || { name: 'Casa', seed };
     this.savedCollider = g.map.collider;
     g.map.collider = h.collider;
     g.interior = h;
+    if (g.windowView) g.windowView.attach(h, door, this.savedCollider); // its windows look onto the real street
     const at = h.spots[spot] || h.spots.entrada;
     p.spawnAt(at.x, at.z + (spot === 'entrada' ? 0.6 : 0), 0);
     g.cam.yaw = Math.PI; g.cam.pitch = -0.05;
@@ -786,7 +847,10 @@ export class Interiors {
     if (g.fm) g.fm.stop(); else g.audio.radioOn(false);
     g.audio.sfx('door_close', { vol: 0.8 });
     this.visitT = 0;
+    if (g.perfGrace) g.perfGrace();
     this.life = vecino ? new HouseLife(g, h, door, mode) : null;
+    if (door && door.shop && g.shops) g.shops.onEnter(h, door);        // somebody behind the counter
+    if (door && door.owner && g.decor && kind === 'casa') g.decor.enter(h); // your things, where you left them
     if (vecino && mode === 'sneak') g.hud.notify(h.profile ? `Estás dentro. Aquí vive ${h.profile.label}. ${g.gx('Agachado', 'Agachada')} (${g.input.keyText('C', 10, 'Agachar')}) haces menos ruido.` : 'Estás dentro.', 'info', 4);
     if (!silent) this.fade(false);
     return h;
@@ -812,6 +876,10 @@ export class Interiors {
     if (this.hiding) this.unhide();
     this.cracking = null;
     if (this.life) { this.life.dispose(); this.life = null; }
+    if (g.windowView) g.windowView.detach();
+    if (g.shops && g.shops.here) g.shops.onLeave();
+    if (g.decor && g.decor.house) g.decor.leave();
+    if (g.homeSafe) g.homeSafe.menu.close();
     this.root.remove(this.house.group);
     this.house.group.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
     this.house = null;
@@ -880,6 +948,7 @@ export class Interiors {
     // fireplaces flicker; the people who live here; a safe being forced
     for (const l of this.house.lights) if (l.userData.fire) l.intensity = l.userData.base * (0.75 + Math.sin(this.t * 11) * 0.12 + Math.sin(this.t * 23.7) * 0.08);
     if (this.life) this.life.update(dt);
+    if (g.decor && g.decor.house === this.house) g.decor.update(dt, g.input);
     if (this.cracking) {
       const c = this.cracking;
       if (Math.hypot(p.pos.x - c.it.x, p.pos.z - c.it.z) > c.it.r + 0.4) { this.cracking = null; g.hud.notify('Dejas la caja fuerte a medias.', 'info', 2); }
@@ -927,6 +996,7 @@ export class Interiors {
   dimSky() {
     const g = this.game;
     if (!this.house) return;
+    if (g.windowView) g.windowView.outdoor = { sun: g.sky.sun.intensity, hemi: g.sky.hemi.intensity }; // for the street outside
     g.sky.sun.intensity *= 0.12;
     g.sky.hemi.intensity *= this.house.powered ? 0.55 : 0.18;
   }
@@ -1051,6 +1121,12 @@ export class Interiors {
       const d = Math.hypot(it.x - p.pos.x, it.z - p.pos.z);
       if (d < it.r && d < bd) { bd = d; best = it; }
     }
+    // decorating: the piece you carry about follows your aim (its own keys), or the one you are looking at
+    const D = g.decor;
+    if (D && D.house === h) {
+      if (D.placing) return { label: `Colocando: ${lc(ITEMS[D.placing.id].name)} <small>· ${g.input.device === 'pad' ? `${g.input.padName(0)} dejar · ${g.input.padName(4)}/${g.input.padName(5)} girar · ${g.input.padName(1)} cancelar` : g.input.device === 'touch' ? 'toca aquí para dejarlo · arma: girar · Subir: cancelar' : 'E o clic: dejar · rueda, Q o X: girar · Esc: cancelar'}</small>`, info: !g.input.isTouch, run: () => D.tryPlace() };
+      if (!(best && best.type === 'exit')) { const o = D.option(); if (o) return o; }
+    }
     // at the way out, leaving comes first (the host who walks you to the door must not stand between you and it)
     if (best && best.type === 'exit' && !this.hiding && !(g.horror && g.horror.active)) return { label: best.label, run: () => this.exit() };
     // people: talk to the one who let you in, knock out someone from behind
@@ -1093,6 +1169,8 @@ export class Interiors {
       case 'hide': return null;
       case 'well': return { label: best.label, run: () => g.hud.notify('El agua del pozo está fresca y oscura.', 'info', 3) };
       case 'fusebox': return { label: 'Cuadro eléctrico', run: () => { this.lightsOn(!h.powered); g.audio.sfx(h.powered ? 'ui_click' : 'ui_back'); } };
+      case 'buy': case 'counter': return g.shops ? g.shops.optionAt(best) : null;
+      case 'safe': return g.homeSafe && !g.homeSafe.menu.open ? g.homeSafe.option(best) : null;
       default: return null;
     }
   }

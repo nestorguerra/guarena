@@ -91,6 +91,11 @@ export class HouseBuilder {
     this.lights = [];
     this.spots = {};
     this.doorLeaves = [];   // hinged interior doors (horror slams them)
+    this.views = [];        // openings onto the outside (windows, balcony, the patio's sky): the street shows there
+  }
+  // an opening onto the outside, as a box in house coordinates; side 'f' looks out at the street, 'b' out of the back
+  view(side, x0, y0, z0, x1, y1, z1) {
+    this.views.push({ side, box: new THREE.Box3(new THREE.Vector3(this.ox + Math.min(x0, x1), Math.min(y0, y1), this.oz + Math.min(z0, z1)), new THREE.Vector3(this.ox + Math.max(x0, x1), Math.max(y0, y1), this.oz + Math.max(z0, z1))) });
   }
   // an interior door leaf hinged at (x, z), running along (dx, dz) when shut, opened by `open` rad (sign picks the side)
   doorLeaf(matKey, knobKey, x, z, dx, dz, openSign, open, w = 0.86) {
@@ -193,8 +198,14 @@ export class HouseBuilder {
     const col = new StaticCollider(Math.min(...xs) - 10, Math.min(...zs) - 10, Math.max(...xs) + 10, Math.max(...zs) + 10, 2);
     for (const s of this.segs) col.addSegment(s[0], s[1], s[2], s[3], s[4]);
     col.build();
-    return { group, collider: col, lights: this.lights, inter: this.inter, spots: this.spots, doors: this.doorLeaves };
+    return { group, collider: col, lights: this.lights, inter: this.inter, spots: this.spots, doors: this.doorLeaves, views: this.views };
   }
+}
+
+// window glass: nearly clear (the street is drawn behind it). Dark, so the lamps of the room do not light it up
+// like a sheet of paper; it only gives back reflections
+export function glassMat() {
+  return new THREE.MeshStandardMaterial({ color: 0x141c22, roughness: 0.05, metalness: 0.1, transparent: true, opacity: 0.12, depthWrite: false });
 }
 
 // materials (textures are CC0 Poly Haven scans; everything falls back to flat colours)

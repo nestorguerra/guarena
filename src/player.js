@@ -99,9 +99,19 @@ export class Player {
     this.noise = !this.grounded ? 6 : this.crouch ? (ns > 0.3 ? 1.2 : 0.4) : ns > 4.2 ? 13 : ns > 2.2 ? 7 : ns > 0.3 ? 3.5 : 0.8;
     // jump & gravity
     if (this.grounded && input.jump) { this.vel.y = 4.6 * Math.sqrt(PERK.jump); this.grounded = false; g.audio.sfx('jump'); }
-    this.pos.x += this.vel.x * dt;
-    this.pos.z += this.vel.z * dt;
-    this.collide();
+    // short steps (a slow frame must not jump a wall), and never through one: a step — or a push out of a tight
+    // corner, like the gap between a shower tray and the wall — that would cross a wall is undone
+    {
+      const col = g.map.collider;
+      const n = Math.max(1, Math.ceil(Math.hypot(this.vel.x, this.vel.z) * dt / 0.1));
+      for (let k = 0; k < n; k++) {
+        const ox = this.pos.x, oz = this.pos.z;
+        this.pos.x += (this.vel.x * dt) / n;
+        this.pos.z += (this.vel.z * dt) / n;
+        this.collide();
+        if (col.crosses && col.crosses(ox, oz, this.pos.x, this.pos.z)) { this.pos.x = ox; this.pos.z = oz; }
+      }
+    }
     // floor under the feet: street level outside; inside a two-storey house the stairs and the upper floor
     const gy = g.interior && g.interior.floorY ? g.interior.floorY(this.pos.x, this.pos.z, this.pos.y) : 0;
     if (!this.grounded) {
@@ -118,7 +128,7 @@ export class Player {
     }
     // weapons (fists, bat, guns) — not while a stall's menu is open: its number keys and B would draw a gun or
     // throw a punch at the stallholder
-    const menu = g.mercadillo && g.mercadillo.menu;
+    const menu = (g.mercadillo && g.mercadillo.menu) || (g.homeSafe && g.homeSafe.menu.open) || (g.decor && g.decor.placing) || (g.fishing && g.fishing.active);
     if (menu) { /* the menu has the keys */ } else if (g.weapons) g.weapons.update(dt, input, this); else if (input.attack && this.punchCd <= 0) this.punch();
     // enter vehicle
     if (input.enter && !menu) this.tryEnter();

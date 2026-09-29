@@ -262,6 +262,23 @@ export class StaticCollider {
   }
 
   // Ray along ground from (x0,z0,y0) to (x1,z1,y1). Returns t in [0,1] of first blocking hit or 1.
+  // does the move (ax, az) → (bx, bz) cross a wall or a piece of furniture (anything above a kerb)?
+  crosses(ax, az, bx, bz, minH = 0.3) {
+    if (!this.segs) return false;
+    const S = this.segs;
+    let hit = false;
+    this.forSegs(Math.min(ax, bx) - 0.05, Math.min(az, bz) - 0.05, Math.max(ax, bx) + 0.05, Math.max(az, bz) + 0.05, (i, o) => {
+      if (S[o + 4] < minH) return false;
+      const x1 = S[o], z1 = S[o + 1], x2 = S[o + 2], z2 = S[o + 3];
+      const d = (bx - ax) * (z2 - z1) - (bz - az) * (x2 - x1);
+      if (Math.abs(d) < 1e-12) return false;
+      const t = ((x1 - ax) * (z2 - z1) - (z1 - az) * (x2 - x1)) / d;
+      const u = ((x1 - ax) * (bz - az) - (z1 - az) * (bx - ax)) / d;
+      if (t > 0 && t <= 1 && u >= 0 && u <= 1) { hit = true; return true; }
+      return false;
+    });
+    return hit;
+  }
   raycast(x0, z0, x1, z1, y0 = 1, y1 = 1, useCircles = false) {
     const S = this.segs;
     let best = 1;

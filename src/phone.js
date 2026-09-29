@@ -8,7 +8,7 @@ const APPS = [
   { id: 'llamar', name: 'Llamar', ico: '📞', mp: true },
   { id: 'radio', name: 'Radio', ico: '📻' },
   { id: 'trabajos', name: 'Trabajos', ico: '💼' },
-  { id: 'mochila', name: 'Mochila', ico: '🎒' },
+  { id: 'mochila', name: 'Inventario', ico: '🎒' },
   { id: 'camara', name: 'Cámara', ico: '📷' },
   { id: 'menu', name: 'Menú', ico: '⚙️' },
 ];
@@ -105,6 +105,7 @@ export class Phone {
     if (id === 'ubicacion') { if (!this.mp) return; this.sendLocation(null); return; }
     if (id === 'camara') { this.toggle(false); document.body.classList.add('photo'); g.hud.notify('📷 Modo foto: 8 segundos sin interfaz', 'info', 1.5); setTimeout(() => document.body.classList.remove('photo'), 8000); return; }
     if (id === 'menu') { this.toggle(false); g.ui.onPause && g.ui.onPause(); return; }
+    if (id === 'mochila' && g.invUI) { this.toggle(false); g.invUI.show(); return; }
     if (id === 'llamar' && !this.mp) return;
     this.screen = id; this.sel = 0; this.render();
   }

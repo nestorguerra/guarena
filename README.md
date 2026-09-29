@@ -3,7 +3,9 @@
 Juego de mundo abierto en el Guareña real (Badajoz, Extremadura), en el navegador: sus calles de
 OpenStreetMap, los edificios del Catastro con su número de plantas, la Iglesia de Santa María, la Plaza de
 España, el Pantano de San Roque… Misiones, coches, motos y bicis, tráfico, peatones, policía, bares, trabajos,
-casas por dentro, radio, modos de terror y de zombis, y multijugador con tus amigos.
+casas por dentro (sus ventanas dan a la calle de verdad), las tiendas del pueblo para entrar y comprar, un
+inventario, tu casa para decorarla y con caja fuerte, la armería, la pesca en el pantano, radio, modos de terror
+y de zombis, y multijugador con tus amigos.
 
 ![Guareña desde el aire: la Iglesia de Santa María y la Plaza de España con el Ayuntamiento](docs/portada.jpg)
 

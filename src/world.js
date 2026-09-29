@@ -168,6 +168,7 @@ void main(){
     base.receiveShadow = true;
     base.renderOrder = -20;
     this.root.add(base);
+    this.base = base; // (the fields out to the horizon: hidden inside a house, whose windows show the real street)
     // markings
     const mk = buildMarkings(map);
     if (mk) {
