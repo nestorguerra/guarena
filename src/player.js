@@ -1,0 +1,725 @@
+// Player controller (on foot & driving, entering/exiting & carjacking, melee) and the third-person camera rig.
+import * as THREE from 'three';
+import { clamp, lerp, damp, dampAngle, wrapAngle, TAU } from './util.js';
+import { PERK, setPerk } from './perks.js';
+
+const WALK = 1.7, JOG = 3.6, SPRINT = 6.4, CROUCH = 1.15;
+
+export class Player {
+  constructor(game, character) {
+    this.game = game;
+    this.pos = new THREE.Vector3();
+    this.vel = new THREE.Vector3();
+    this.heading = 0;
+    this.health = 100;
+    this.armor = 0;
+    this.money = 0;
+    this.vehicle = null;
+    this.mode = 'foot';
+    this.grounded = true;
+    this.punchCd = 0; this.punchSide = 0;
+    this.stamina = 1;
+    this.enter = null;  // entering state
+    this.hurtT = 0;
+    this.knock = null;
+    this.setCharacter(character);
+  }
+  setCharacter(ch) {
+    if (this.char) { this.game.scene.remove(this.char.object); this.char.dispose(); }
+    this.char = ch;
+    setPerk(ch.desc && (ch.desc.perk || ch.desc.id));
+    this.game.scene.add(ch.object);
+    ch.object.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+  }
+  spawnAt(x, z, heading = 0) {
+    this.pos.set(x, 0, z);
+    this.vel.set(0, 0, 0);
+    this.heading = heading;
+    this.char.object.visible = true;
+    this.char.setBase(null);
+    this.char.object.rotation.set(0, heading, 0);
+    this.mode = 'foot';
+    this.vehicle = null;
+    this.knock = null;
+    this.crouch = false; this.seat = null;
+    if (this.hideIn) { this.hideIn = null; document.body.classList.remove('hiding-cont'); }
+  }
+
+  update(dt, input, camYaw) {
+    const g = this.game;
+    this.punchCd -= dt;
+    this.hurtT -= dt;
+    if (this.mode === 'dead' || this.mode === 'busted') { this.char.update(dt, 0, {}); this.syncChar(); return; }
+    if (this.mode === 'car') return this.updateCar(dt, input);
+    if (this.mode === 'entering') return this.updateEntering(dt);
+    if (this.mode === 'passenger') return this.updatePassenger(dt, input);
+    if (this.mode === 'hidden') return this.updateHidden(dt, input);
+    if (this.mode === 'sit') return this.updateSit(dt, input);
+    if (this.knock) return this.updateKnock(dt);
+    // safety net: never stay trapped inside a building (bad save, glitchy push…)
+    this.wallT = (this.wallT || 0) + dt;
+    if (this.wallT > 0.5) {
+      this.wallT = 0;
+      if (g.map.buildingAt(this.pos.x, this.pos.z)) {
+        this.insideN = (this.insideN || 0) + 1;
+        if (this.insideN >= 2) { this.insideN = 0; const q = g.map.nearestEdge(this.pos.x, this.pos.z, 120, (e) => e.walk && !e.blocked); if (q) { this.pos.x = q.x; this.pos.z = q.z; this.vel.set(0, 0, 0); } }
+      } else this.insideN = 0;
+    }
+    // ---------------- on foot
+    // crouching (C): slow, quiet and hard to spot. Sprinting or jumping stands you up.
+    if (input.crouch) { this.crouch = !this.crouch; g.hud.notify(this.crouch ? `${g.gx('Agachado', 'Agachada')}: vas en sigilo (${g.input.keyText('C', 10, 'Agacharse')} para levantarte)` : 'De pie', 'info', 1.6); }
+    if (this.crouch && ((input.sprint && Math.hypot(input.moveX, input.moveY) > 0.1) || input.jump)) this.crouch = false;
+    const mx = input.moveX, my = input.moveY;
+    const mag = Math.min(1, Math.hypot(mx, my));
+    const aiming = g.weapons && g.weapons.aiming;
+    const strafe = aiming || g.cam.fp; // first person: the body always faces where you look
+    let target = 0;
+    let moveYaw = this.heading;
+    if (strafe) this.heading = dampAngle(this.heading, camYaw, g.cam.fp ? 40 : 22, dt); // face where the crosshair points
+    if (mag > 0.05) {
+      // camera-relative direction: forward = camera yaw, right = (-cos, sin)
+      const fx = Math.sin(camYaw), fz = Math.cos(camYaw);
+      const rx = -fz, rz = fx;
+      const dx = fx * my + rx * mx, dz = fz * my + rz * mx;
+      const want = Math.atan2(dx, dz);
+      moveYaw = want;
+      this.turnRate = strafe ? 0 : wrapAngle(want - this.heading);
+      if (!strafe) this.heading = dampAngle(this.heading, want, 12 * PERK.turn, dt);
+      const sprint = input.sprint && this.stamina > 0.05 && !aiming && !this.crouch && !this.carry;
+      target = this.crouch ? CROUCH * Math.max(0.4, mag) : aiming ? WALK * 1.25 * Math.max(0.5, mag) : (sprint ? SPRINT * PERK.run : mag < 0.5 ? WALK : JOG * PERK.run) * (mag < 0.5 ? 1 : mag);
+      if (this.carry) target = Math.min(target, 2.4); // a box or a tray in the hands
+      if (sprint) this.stamina = Math.max(0, this.stamina - dt * 0.12 * PERK.stamina); else this.stamina = Math.min(1, this.stamina + dt * 0.2 * PERK.regen);
+    } else { this.turnRate = 0; this.stamina = Math.min(1, this.stamina + dt * 0.3 * PERK.regen); }
+    const hs = Math.hypot(this.vel.x, this.vel.z);
+    const ns = damp(hs, target, this.grounded ? 10 * PERK.turn : 1.5, dt);
+    const vy = strafe ? moveYaw : this.heading; // strafe while aiming / in first person
+    this.vel.x = Math.sin(vy) * ns;
+    this.vel.z = Math.cos(vy) * ns;
+    // how far you can be heard (metres): the police and people inside houses notice you within it
+    this.noise = !this.grounded ? 6 : this.crouch ? (ns > 0.3 ? 1.2 : 0.4) : ns > 4.2 ? 13 : ns > 2.2 ? 7 : ns > 0.3 ? 3.5 : 0.8;
+    // jump & gravity
+    if (this.grounded && input.jump) { this.vel.y = 4.6 * Math.sqrt(PERK.jump); this.grounded = false; g.audio.sfx('jump'); }
+    this.pos.x += this.vel.x * dt;
+    this.pos.z += this.vel.z * dt;
+    this.collide();
+    // floor under the feet: street level outside; inside a two-storey house the stairs and the upper floor
+    const gy = g.interior && g.interior.floorY ? g.interior.floorY(this.pos.x, this.pos.z, this.pos.y) : 0;
+    if (!this.grounded) {
+      this.vel.y -= 13 * dt;
+      this.pos.y += this.vel.y * dt;
+      if (this.pos.y <= gy) { this.pos.y = gy; this.grounded = true; if (this.vel.y < -3) g.audio.sfx('land'); this.vel.y = 0; }
+    } else if (gy < this.pos.y - 0.4) { this.grounded = false; this.vel.y = 0; } // stepped off an edge
+    else this.pos.y = gy;
+    // footsteps
+    if (this.grounded && ns > 1) {
+      this.stepAcc = (this.stepAcc || 0) + ns * dt;
+      const stride = ns > 5 ? 1.5 : ns > 3 ? 1.1 : 0.75;
+      if (this.stepAcc > stride) { this.stepAcc = 0; g.audio.sfx('footstep', { vol: this.crouch ? 0.08 : ns > 5 ? 0.6 : 0.35 }); }
+    }
+    // weapons (fists, bat, guns) — not while a stall's menu is open: its number keys and B would draw a gun or
+    // throw a punch at the stallholder
+    const menu = g.mercadillo && g.mercadillo.menu;
+    if (menu) { /* the menu has the keys */ } else if (g.weapons) g.weapons.update(dt, input, this); else if (input.attack && this.punchCd <= 0) this.punch();
+    // enter vehicle
+    if (input.enter && !menu) this.tryEnter();
+    const bare = !g.weapons || (g.weapons.cur === 'punos' && !g.weapons.aiming); // idle fidgets only with empty hands
+    const moveDir = this.moveDir = strafe && ns > 0.2 ? wrapAngle(moveYaw - this.heading) : 0; // aiming: sidesteps and walking backwards
+    const sw = g.hud.subWho, talking = !!sw && (sw === 'Tú' || sw === (this.char.desc && this.char.desc.name));
+    // standing and saying a line: the hands talk too
+    if (talking && ns < 0.3 && !this.char.base && (!g.weapons || g.weapons.cur === 'punos')) { this.char.setBase('talk'); this.talkBase = true; }
+    else if (this.talkBase && (!talking || ns >= 0.3)) { if (this.char.base === 'talk') this.char.setBase(null); this.talkBase = false; }
+    this.char.update(dt, ns, { grounded: this.grounded, vy: this.vel.y, turn: this.turnRate, fidget: bare && !g.cam.fp && !this.crouch && !talking, crouch: this.crouch, moveDir, talking });
+    if (g.weapons) g.weapons.postPose(this, dt); // gun in both hands (after the body is posed)
+    this.syncChar();
+  }
+
+  syncChar() {
+    const o = this.char.object;
+    o.position.copy(this.pos);
+    if (!this.knock) o.rotation.set(0, this.heading, 0);
+  }
+
+  collide() {
+    const g = this.game;
+    const r = g.map.collider.resolveCircle(this.pos, 0.34);
+    // vehicles as boxes
+    for (const v of g.fleet.vehicles) {
+      const dx = this.pos.x - v.x, dz = this.pos.z - v.z;
+      if (Math.abs(dx) > 5 || Math.abs(dz) > 5) continue;
+      const fx = Math.sin(v.heading), fz = Math.cos(v.heading);
+      const lf = dx * fx + dz * fz, ll = dx * -fz + dz * fx;
+      const ex = v.hl + 0.3, ez = v.hw + 0.3;
+      if (Math.abs(lf) < ex && Math.abs(ll) < ez) {
+        // hit by moving car?
+        const rel = Math.hypot(v.vx - this.vel.x, v.vz - this.vel.z);
+        if (v.vel > 4.5 && rel > 4 && !this.knock && v !== this.vehicle) { this.knockDown(v.vx * 0.7, v.vz * 0.7, Math.min(60, v.vel * 3.2)); g.onPlayerHitByCar && g.onPlayerHitByCar(v); return; }
+        const px = ex - Math.abs(lf), pz = ez - Math.abs(ll);
+        if (px < pz) { const s = Math.sign(lf) * px; this.pos.x += fx * s; this.pos.z += fz * s; }
+        else { const s = Math.sign(ll) * pz; this.pos.x += -fz * s; this.pos.z += fx * s; }
+      }
+    }
+    // keep inside the playable area (not inside a house: interiors live far outside the town)
+    if (!g.interior) {
+      const b = g.map.bounds;
+      this.pos.x = clamp(this.pos.x, b.x0 + 20, b.x1 - 20);
+      this.pos.z = clamp(this.pos.z, b.z0 + 20, b.z1 - 20);
+    }
+  }
+
+  punch() {
+    const g = this.game;
+    this.punchCd = 0.42;
+    this.punchSide ^= 1;
+    this.char.play(this.punchSide ? 'punch' : 'punch2', 0.42);
+    g.audio.sfx('punch');
+    const fx = Math.sin(this.heading), fz = Math.cos(this.heading);
+    const rs = g.interior && g.interiors.life && g.interiors.life.hitTest(this.pos.x + fx * 0.9, this.pos.z + fz * 0.9, 0.9);
+    if (rs) { setTimeout(() => g.audio.sfx('punch_hit'), 120); g.interiors.life.damage(rs, 30, fx * 3, fz * 3, 'fist'); return; }
+    const hit = g.peds.hitTest(this.pos.x + fx * 0.9, this.pos.z + fz * 0.9, 0.9, this);
+    if (hit) {
+      setTimeout(() => g.audio.sfx('punch_hit', { x: hit.x, z: hit.z }), 120);
+      g.peds.punched(hit, fx, fz, this);
+    } else {
+      const cop = g.police && g.police.hitTest(this.pos.x + fx * 0.9, this.pos.z + fz * 0.9, 0.9);
+      if (cop) { setTimeout(() => g.audio.sfx('punch_hit'), 120); g.police.punched(cop, fx, fz); }
+    }
+  }
+
+  knockDown(vx, vz, dmg) {
+    if (this.mode === 'entering') { this.mode = 'foot'; this.enter = null; }
+    this.knock = { t: 0, vx, vz, vy: 3.5 + Math.hypot(vx, vz) * 0.15, spin: (Math.random() - 0.5) * 8, lying: false };
+    this.damage(dmg);
+    this.char.setBase('lie');
+    this.game.audio.sfx(this.char.desc.gender === 'f' ? 'yelp_f' : 'yelp_m');
+    this.game.cam.shake(0.5);
+  }
+  updateKnock(dt) {
+    const k = this.knock;
+    k.t += dt;
+    const o = this.char.object;
+    if (!k.lying) {
+      k.vy -= 13 * dt;
+      const nx = this.pos.x + k.vx * dt, nz = this.pos.z + k.vz * dt;
+      const tt = this.game.map.collider.raycast(this.pos.x, this.pos.z, nx, nz, 0.9, 0.9);
+      if (tt < 1) { const f = Math.max(0, tt - 0.05); this.pos.x += (nx - this.pos.x) * f; this.pos.z += (nz - this.pos.z) * f; k.vx *= -0.25; k.vz *= -0.25; }
+      else { this.pos.x = nx; this.pos.z = nz; }
+      this.pos.y += k.vy * dt;
+      k.vx *= Math.exp(-0.8 * dt); k.vz *= Math.exp(-0.8 * dt);
+      this.game.map.collider.resolveCircle(this.pos, 0.3);
+      o.rotation.x = Math.max(-Math.PI / 2, o.rotation.x - dt * 5);
+      o.rotation.y += k.spin * dt;
+      if (this.pos.y <= 0 && k.t > 0.15) { this.pos.y = 0; k.lying = true; k.lieT = 0; this.game.audio.sfx('land'); }
+    } else {
+      k.lieT += dt;
+      o.rotation.x = -Math.PI / 2;
+      this.pos.y = 0.14;
+      if (k.lieT > 1.8 && this.mode === 'foot' && this.health > 0) {
+        this.knock = null;
+        this.pos.y = 0;
+        o.rotation.x = 0;
+        this.heading = o.rotation.y;
+        this.char.setBase(null);
+      }
+    }
+    o.position.copy(this.pos);
+    this.char.update(dt, 0, {});
+  }
+
+  damage(d) {
+    if (this.mode === 'dead') return;
+    d *= PERK.hurt;
+    // the vest soaks up most of it while it lasts
+    if (this.armor > 0) { const a = Math.min(this.armor, d * 0.7); this.armor -= a; d -= a; }
+    this.health = Math.max(0, this.health - d);
+    this.hurtT = 0.6;
+    this.game.hud && this.game.hud.flashDamage();
+    if (this.health <= 0) this.game.onPlayerDeath();
+  }
+
+  // ---------------- vehicles
+  tryEnter() {
+    const g = this.game;
+    const col = g.map.collider;
+    // multiplayer: next to a friend's car you get in as the passenger
+    if (g.net && g.net.active) { const rc = g.net.rideCandidate(this.pos.x, this.pos.z); if (rc) { this.boardRide(rc); return; } }
+    let best = null, bd = 4.2;
+    const hx = Math.sin(this.heading), hz = Math.cos(this.heading);
+    for (const v of g.fleet.vehicles) {
+      if (v.dead || v.remote) continue;
+      const dx = v.x - this.pos.x, dz = v.z - this.pos.z, dist = Math.hypot(dx, dz);
+      // the nearest one, and the one you are facing (a bicycle against the wall beats the car behind you)
+      const d = dist - v.hw - ((dx * hx + dz * hz) / (dist || 1)) * 0.6;
+      if (d >= bd) continue;
+      // must be reachable: no wall between us and the car
+      if (col.raycast(this.pos.x, this.pos.z, v.x, v.z, 1.0, 1.0) < 0.98) continue;
+      bd = d; best = v;
+    }
+    if (!best) return;
+    const v = best;
+    const info = g.fleet.renderer.info(v.model);
+    // door side: driver = local +x (left side of car)
+    const fx = Math.sin(v.heading), fz = Math.cos(v.heading);
+    const lx = fz, lz = -fx; // left vector = -right
+    const dp = info.door;
+    const doorX = v.x + lx * dp.x + fx * dp.z, doorZ = v.z + lz * dp.x + fz * dp.z;
+    this.enter = { v, t: 0, doorX, doorZ, carjack: !!v.ai && v.ai.mode === 'traffic', cop: v.spec.livery === 'local' || v.spec.livery === 'gc', locked: !v.ai && v.locked && !v.opened };
+    this.mode = 'entering';
+    if (this.enter.carjack) { v.ai.hold = 2.5; } // the driver brakes while we pull the door
+    else if (this.enter.locked) { g.audio.sfx(v.spec.twoWheel ? 'ui_click' : PERK.lockpick ? 'door_open' : 'car_break_in', { x: v.x, z: v.z }); }
+  }
+  updateEntering(dt) {
+    const e = this.enter;
+    const v = e.v;
+    const g = this.game;
+    e.t += dt;
+    // walk to the door
+    const dx = e.doorX - this.pos.x, dz = e.doorZ - this.pos.z;
+    const d = Math.hypot(dx, dz);
+    let sp = 0;
+    // could not reach the door (blocked by a wall or another car): give up
+    if (!e.atDoor && e.t > 2.4 && d > 1.3) { this.mode = 'foot'; this.enter = null; this.char.update(dt, 0, {}); this.syncChar(); return; }
+    if (d > 0.3 && e.t < 2.4 && !e.atDoor) {
+      this.heading = dampAngle(this.heading, Math.atan2(dx, dz), 14, dt);
+      sp = Math.min(JOG, d * 5);
+      this.pos.x += (dx / d) * sp * dt; this.pos.z += (dz / d) * sp * dt;
+      this.collide();
+    } else {
+      if (!e.atDoor) {
+        e.atDoor = e.t;
+        this.heading = v.heading;
+        if (e.carjack && v.ai) g.onCarjack(v);
+        if (e.locked && !PERK.lockpick) { this.char.play('punch', 0.5); }
+        else if (!v.spec.twoWheel) { this.char.play('enter', 0.5); g.audio.sfx('door_open', { x: v.x, z: v.z }); }
+      }
+      const wait = e.locked ? (PERK.lockpick ? 0.6 : 1.3) : PERK.lockpick ? 0.3 : 0.45; // the mechanic opens it with a wire, no glass broken
+      if (e.t - e.atDoor > wait) {
+        if (e.locked) {
+          v.opened = true;
+          if (!PERK.lockpick && Math.random() < 0.55) { g.audio.sfx('alarm', { x: v.x, z: v.z }); g.police.crime('breakin', v.x, v.z); }
+        }
+        this.getIn(v);
+        return;
+      }
+    }
+    if (v.vel > 3 || v.dead || v.removed || (v.driver && v.driver !== 'player' && !e.carjack)) { this.mode = 'foot'; this.enter = null; }
+    this.char.update(dt, sp, {});
+    this.syncChar();
+  }
+  getIn(v) {
+    const g = this.game;
+    this.vehicle = v;
+    this.mode = 'car';
+    this.enter = null;
+    v.driver = 'player';
+    v.sleeping = false;
+    v.parked = false;
+    v.keep = true;
+    // which parked car it was: every town parks the same cars, so friends can draw this very one
+    if (v.spot) v.fromSpot = g.fleet.spots.indexOf(v.spot);
+    else if (v.fromSpot === undefined) v.fromSpot = -1;
+    if (v.spot) { v.spot.taken = true; v.spot.vehicle = null; v.spot = null; }
+    if (v.ai) g.traffic.release(v);
+    this.char.object.visible = !!v.spec.twoWheel;
+    if (v.spec.twoWheel) this.char.setBase(v.spec.shape === 'bici' ? 'bici' : 'moto');
+    if (g.weapons) { g.weapons.aiming = false; g.weapons.syncModel(this.char); }
+    if (!v.spec.twoWheel) g.audio.sfx('door_close', { x: v.x, z: v.z });
+    g.onEnterVehicle(v);
+  }
+  exitVehicle(force = false) {
+    const g = this.game;
+    const v = this.vehicle;
+    if (!v) return;
+    const info = g.fleet.renderer.info(v.model);
+    const fx = Math.sin(v.heading), fz = Math.cos(v.heading);
+    const lx = fz, lz = -fx;
+    let side = 1;
+    const tryPos = (s) => {
+      const x = v.x + lx * (v.hw + 0.6) * s + fx * info.door.z, z = v.z + lz * (v.hw + 0.6) * s + fz * info.door.z;
+      return { x, z, ok: !g.map.buildingAt(x, z) && g.map.collider.raycast(v.x, v.z, x, z, 1, 1) > 0.98 };
+    };
+    let p = tryPos(1);
+    if (!p.ok) { p = tryPos(-1); side = -1; }
+    if (!p.ok) { p = { x: v.x - fx * (v.hl + 0.8), z: v.z - fz * (v.hl + 0.8) }; }
+    const bail = !force && v.vel > 5;
+    v.driver = null;
+    v.throttle = 0; v.brake = bail ? 0 : 1; v.steerIn = 0; v.handbrake = bail ? 0 : 1;
+    v.siren = false;
+    this.vehicle = null;
+    this.mode = 'foot';
+    this.char.object.visible = true;
+    this.pos.set(p.x, 0, p.z);
+    this.heading = v.heading + (side > 0 ? Math.PI / 2 : -Math.PI / 2);
+    this.char.setBase(null);
+    this.char.object.rotation.order = 'XYZ'; this.char.object.rotation.set(0, this.heading, 0);
+    if (!v.spec.twoWheel) g.audio.sfx('door_open', { x: v.x, z: v.z });
+    g.onExitVehicle(v);
+    if (bail) { v.coastT = 3.5; this.knockDown(v.vx * 0.5 + lx * 2 * side, v.vz * 0.5 + lz * 2 * side, Math.min(20, v.vel * 1.2)); }
+  }
+  // ---------------- sitting (terraces, benches, the neighbours' chairs, sofas at home)
+  sitOn(s) {
+    const g = this.game;
+    if (g.weapons) { g.weapons.aiming = false; if (g.weapons.cur !== 'punos') { this.holstered = g.weapons.cur; g.weapons.select('punos'); } g.weapons.syncModel && g.weapons.syncModel(this.char); }
+    this.mode = 'sit'; this.seat = s; this.crouch = false;
+    this.standPos = { x: this.pos.x, z: this.pos.z };
+    this.pos.set(s.x, s.y || this.pos.y, s.z); this.vel.set(0, 0, 0);
+    this.heading = s.h;
+    this.char.setBase(s.kind === 'banco' ? 'sit' : 'sitTalk');
+    this.syncChar();
+  }
+  standUp() {
+    const s = this.seat, g = this.game;
+    this.mode = 'foot'; this.seat = null;
+    this.char.setBase(null);
+    if (this.holstered && g.weapons) { g.weapons.select(this.holstered); this.holstered = null; }
+    if (s) {
+      // step forward off the seat (or back where you were)
+      const fx = Math.sin(s.h), fz = Math.cos(s.h);
+      const x = s.x + fx * 0.6, z = s.z + fz * 0.6;
+      if (this.game.map.collider.raycast(s.x, s.z, x, z, 0.5, 0.5) > 0.95 && !this.game.map.buildingAt(x, z)) this.pos.set(x, this.pos.y, z);
+      else if (this.standPos) this.pos.set(this.standPos.x, this.pos.y, this.standPos.z);
+    }
+    this.syncChar();
+  }
+  updateSit(dt, input) {
+    const g = this.game, s = this.seat;
+    this.vel.set(0, 0, 0);
+    this.noise = 0.3;
+    this.stamina = Math.min(1, this.stamina + dt * 0.35 * PERK.regen);
+    if (s) { this.pos.set(s.x, s.y || this.pos.y, s.z); this.heading = s.h; }
+    // walking off (move keys / stick) stands you up, unless you are choosing from the menu
+    if (!(g.seats && g.seats.menuOpen) && Math.hypot(input.moveX, input.moveY) > 0.6) { g.seats ? g.seats.standUp() : this.standUp(); return; }
+    this.char.update(dt, 0, { fidget: false });
+    this.syncChar();
+  }
+  // ---------------- hiding in a rubbish container (the police cannot see you; they may open it)
+  hideInContainer(c) {
+    const g = this.game;
+    if (g.weapons) { g.weapons.aiming = false; g.weapons.syncModel && g.weapons.syncModel(this.char); }
+    g.police.onHide('cont', c); // did anyone see you get in?
+    this.mode = 'hidden'; this.hideIn = c; this.crouch = false;
+    this.outPos = { x: this.pos.x, z: this.pos.z };
+    this.pos.set(c.x, 0, c.z); this.vel.set(0, 0, 0);
+    this.char.object.visible = false;
+    g.cam.peekYaw = Math.atan2(this.outPos.x - c.x, this.outPos.z - c.z) + Math.PI; // looking out the side you got in
+    g.audio.sfx('lid', { x: c.x, z: c.z });
+    document.body.classList.add('hiding-cont');
+    g.hud.notify('Te escondes en el contenedor. Nadie te ve… si no te han visto entrar.', 'info', 3);
+  }
+  // forced: an officer opened the lid and pulls you out
+  leaveContainer(forced = false) {
+    const g = this.game, c = this.hideIn;
+    if (!c) return;
+    this.hideIn = null; this.mode = 'foot';
+    document.body.classList.remove('hiding-cont');
+    // step out where you got in (or the first free spot around it)
+    let best = this.outPos && Math.hypot(this.outPos.x - c.x, this.outPos.z - c.z) < 2.5 ? this.outPos : null;
+    if (!best || g.map.buildingAt(best.x, best.z)) {
+      for (let k = 0; k < 8 && !best; k++) {
+        const a = (k / 8) * Math.PI * 2, x = c.x + Math.sin(a) * 1.35, z = c.z + Math.cos(a) * 1.35;
+        if (!g.map.buildingAt(x, z) && g.map.collider.raycast(c.x, c.z, x, z, 0.5, 0.5) > 0.9) best = { x, z };
+      }
+    }
+    best = best || { x: c.x + 1.3, z: c.z };
+    this.pos.set(best.x, 0, best.z); this.vel.set(0, 0, 0);
+    this.heading = Math.atan2(best.x - c.x, best.z - c.z);
+    this.char.object.visible = !g.cam.fp;
+    g.audio.sfx('lid', { x: c.x, z: c.z, pitch: 1.1 });
+    this.syncChar();
+    if (forced) this.knockDown(Math.sin(this.heading) * 2, Math.cos(this.heading) * 2, 0);
+  }
+  updateHidden(dt, input) {
+    const c = this.hideIn;
+    if (!c || c.broken) { this.leaveContainer(); return; } // knocked over by a car: out you go
+    this.vel.set(0, 0, 0);
+    this.noise = 0;
+    this.stamina = Math.min(1, this.stamina + dt * 0.3 * PERK.regen);
+    this.char.object.visible = false;
+    this.char.update(dt, 0, {});
+  }
+  // ---------------- riding with a friend (multiplayer): sat on the right, the driver steers
+  boardRide(rc) {
+    const g = this.game;
+    this.ride = rc; this.mode = 'passenger';
+    this.vel.set(0, 0, 0);
+    this.char.object.visible = false;
+    if (g.weapons) { g.weapons.aiming = false; g.weapons.syncModel(this.char); }
+    g.audio.sfx('door_close', { x: rc.v.x, z: rc.v.z });
+    g.hud.notify(`Vas de copiloto con ${rc.name}. ${g.input.keyText('F', 3, 'Bajar')} para bajarte.`, 'ok', 4);
+  }
+  updatePassenger(dt, input) {
+    const r = this.ride, v = r && r.v;
+    if (!v || v.removed || !v.remote) { this.leaveRide(); return; }
+    const fx = Math.sin(v.heading), fz = Math.cos(v.heading);
+    this.pos.set(v.x - fz * 0.38, 0, v.z + fx * 0.38);
+    this.heading = v.heading;
+    this.char.object.visible = false;
+    if (input.enter && v.vel < 14) { this.leaveRide(); return; }
+    this.char.update(dt, 0, {});
+    this.syncChar();
+  }
+  leaveRide() {
+    const g = this.game, v = this.ride && this.ride.v;
+    this.ride = null; this.mode = 'foot';
+    this.char.object.visible = !g.cam.fp;
+    this.char.setBase(null);
+    this.vel.set(0, 0, 0);
+    if (v && !v.removed) {
+      const fx = Math.sin(v.heading), fz = Math.cos(v.heading);
+      let x = v.x - fz * (v.hw + 0.6), z = v.z + fx * (v.hw + 0.6);
+      if (g.map.buildingAt(x, z) || g.map.collider.raycast(v.x, v.z, x, z, 1, 1) < 0.98) { x = v.x + fz * (v.hw + 0.6); z = v.z - fx * (v.hw + 0.6); }
+      this.pos.set(x, 0, z);
+      this.heading = v.heading - Math.PI / 2;
+      g.audio.sfx('door_open', { x: v.x, z: v.z });
+    }
+    this.syncChar();
+  }
+  // on a motorbike or a bicycle: sat on the seat, leaning with it, pedalling
+  rideBike(v, dt) {
+    const g = this.game, info = g.fleet.renderer.info(v.model), o = this.char.object, s = this.char.scale || 1;
+    const bici = v.spec.shape === 'bici';
+    // the seat in the world, from the bike's own lean and heading (same Euler order as its matrix)
+    const sy = info.seat.y - (bici ? 0.64 : 0.5) * s, sz = info.seat.z;
+    const r = v.roll, pt = v.pitch, h = v.heading;
+    const x1 = -sy * Math.sin(r), y1 = sy * Math.cos(r);
+    const y2 = y1 * Math.cos(pt) - sz * Math.sin(pt), z2 = y1 * Math.sin(pt) + sz * Math.cos(pt);
+    o.visible = !g.cam.fp;
+    o.rotation.order = 'YXZ';
+    o.rotation.set(pt, h, r);
+    o.position.set(v.x + x1 * Math.cos(h) + z2 * Math.sin(h), (v.y || 0) + 0.02 + y2, v.z - x1 * Math.sin(h) + z2 * Math.cos(h));
+    this.char.pedal = (this.char.pedal || 0) + (Math.max(0, v.speed) / (v.spec.wr || 0.34)) * dt * 0.42;
+    this.char.update(dt, 0, { fidget: false });
+  }
+  updateCar(dt, input) {
+    const v = this.vehicle;
+    const g = this.game;
+    if (!v || v.removed) { this.mode = 'foot'; this.vehicle = null; this.char.object.visible = true; return; }
+    v.throttle = input.throttle;
+    v.brake = input.brakeIn;
+    v.steerIn = input.steer;
+    v.handbrake = input.handbrake ? 1 : 0;
+    this.pos.set(v.x, 0, v.z);
+    this.heading = v.heading;
+    if (input.enter && v.vel < 14) this.exitVehicle();
+    if (v.dead && v.fire > 0.5 && this.vehicle) { this.exitVehicle(); this.damage(15); }
+    if (input.lights) v.lightsOn = !v.lightsOn;
+    if (input.siren && (v.spec.livery === 'local' || v.spec.livery === 'gc')) v.siren = !v.siren;
+  }
+}
+
+// ------------------------------------------------------------------ camera rig
+export class CameraRig {
+  constructor(game, camera) {
+    this.game = game;
+    this.camera = camera;
+    this.yaw = Math.PI;
+    this.pitch = -0.18;
+    this.dist = 4.6;
+    this.carYawOff = 0;
+    this.lastLook = 0;
+    this.pos = new THREE.Vector3();
+    this.target = new THREE.Vector3();
+    this.shakeAmt = 0;
+    this.fov = 62;
+    this.cinematic = null; // {from, to, look, t, dur}
+    this.sens = 1;
+    this.fp = false;      // first person
+    this.fpPref = null;   // the player's choice inside houses / horror (null = default: first person)
+    this.bobT = 0;
+  }
+  setFirstPerson(on) {
+    this.fp = !!on;
+    const ch = this.game.player && this.game.player.char;
+    if (ch) ch.object.visible = !this.fp;
+    if (this.fp) { this.fov = 72; }
+  }
+  shake(a) { this.shakeAmt = Math.min(1.2, this.shakeAmt + a); }
+  update(dt, input) {
+    const g = this.game;
+    const p = g.player;
+    const [ldx, ldy] = input.look();
+    const s = 0.0026 * this.sens;
+    if (this.cinematic) return this.updateCinematic(dt);
+    // looking through the rifle scope
+    const W = g.weapons;
+    if (W && W.scoped) {
+      if (p.vehicle || p.mode !== 'foot') W.unscope();
+      else { this.scopeHid = true; return this.updateScope(dt, ldx, ldy, s); }
+    }
+    if (this.scopeHid) { this.scopeHid = false; if (p.char && !this.fp) p.char.object.visible = true; this.fov = 50; }
+    if (p.mode === 'hidden' && p.hideIn) return this.updatePeek(dt, ldx, ldy, s);
+    const rideV = p.mode === 'passenger' && p.ride ? p.ride.v : null;
+    // inside the car (driver or passenger): the cabin view
+    const inV = (p.mode === 'car' && p.vehicle) || rideV;
+    const cabin = inV && this.carFP && !inV.spec.twoWheel && inV.spec.shape !== 'tractor';
+    if (!cabin && this.game.carInterior && this.game.carInterior.v) this.game.carInterior.set(null);
+    if (cabin) return this.updateCarFP(dt, inV, rideV ? -1 : 1, ldx, ldy, s);
+    if (this.fp && !p.vehicle && !rideV && p.mode !== 'dead') return this.updateFirstPerson(dt, ldx, ldy, s);
+    if (input.mouse.wheel && p.vehicle) this.dist = clamp(this.dist + input.mouse.wheel * 0.6, 2.4, 9);
+    const col = g.map.collider;
+    let tx, ty, tz, dist, fovT = 62;
+    if ((p.mode === 'car' && p.vehicle) || rideV) {
+      const v = p.vehicle || rideV;
+      if (Math.abs(ldx) + Math.abs(ldy) > 0.5) { this.carYawOff -= ldx * s; this.pitch = clamp(this.pitch - ldy * s, -0.9, 0.35); this.lastLook = 0; }
+      this.lastLook += dt;
+      if (this.lastLook > 1.4) { this.carYawOff = damp(this.carYawOff, 0, 2.5, dt); this.pitch = damp(this.pitch, -0.16, 2, dt); }
+      const back = input.lookBack ? Math.PI : 0;
+      const velHeading = v.vel > 3 && v.speed < -1 ? v.heading + Math.PI : v.heading;
+      const desired = velHeading + this.carYawOff + back + Math.PI;
+      this.yaw = dampAngle(this.yaw, desired, back ? 30 : 4.5, dt);
+      const L = v.spec.L;
+      dist = L * 0.95 + 3.2 + Math.min(2.5, v.vel * 0.05);
+      tx = v.x; ty = v.spec.H * 0.75 + 0.9; tz = v.z;
+      fovT = 62 + clamp((v.vel - 12) * 0.4, 0, 12);
+    } else {
+      const aim = g.weapons && g.weapons.aiming && !p.knock;
+      const sk = aim ? 0.65 : 1; // finer mouse while aiming
+      this.yaw -= ldx * s * sk;
+      this.pitch = clamp(this.pitch - ldy * s * sk, -1.1, 0.55);
+      if (p.knock) { tx = p.pos.x; ty = 0.9; tz = p.pos.z; }
+      else { tx = p.pos.x; ty = p.pos.y + (p.mode === 'sit' ? 1.15 : p.crouch ? 1.05 : 1.55); tz = p.pos.z; }
+      this.footDist = damp(this.footDist ?? this.dist, aim ? 2.2 : this.dist, 9, dt);
+      dist = this.footDist;
+      if (aim) fovT = 50;
+      // shoulder offset to the right (more while aiming)
+      const rx = -Math.cos(this.yaw + Math.PI), rz = Math.sin(this.yaw + Math.PI);
+      const so = aim ? 0.6 : 0.35;
+      tx += rx * so; tz += rz * so;
+      // gentle auto-follow when running and not looking
+      if (!aim && Math.abs(ldx) < 0.5 && Math.hypot(p.vel.x, p.vel.z) > 3) this.yaw = dampAngle(this.yaw, p.heading + Math.PI, 0.6, dt);
+    }
+    this.fov = damp(this.fov, fovT, fovT < 55 ? 9 : 3, dt);
+    // camera position on a sphere behind the target (yaw points from target to camera)
+    const cp = Math.cos(this.pitch);
+    let cx = tx + Math.sin(this.yaw) * cp * dist, cz = tz + Math.cos(this.yaw) * cp * dist, cy = ty - Math.sin(this.pitch) * dist;
+    const inn = g.interior;
+    cy = Math.max((inn && inn.floorY ? inn.floorY(tx, tz, p.pos.y) : 0) + 0.35, cy);
+    if (inn && inn.ceilY) cy = Math.min(cy, inn.ceilY(tx, tz, p.pos.y) - 0.18);
+    // collision: pull in if a wall is between target and camera
+    const t = col.raycast(tx, tz, cx, cz, ty, cy);
+    if (t < 1) {
+      const k = Math.max(0.12, t - 0.06);
+      cx = tx + (cx - tx) * k; cz = tz + (cz - tz) * k; cy = ty + (cy - ty) * k;
+    }
+    this.target.set(tx, ty, tz);
+    this.pos.set(cx, cy, cz);
+    // shake
+    if (this.shakeAmt > 0.001) {
+      const a = this.shakeAmt * 0.12;
+      this.pos.x += (Math.random() - 0.5) * a; this.pos.y += (Math.random() - 0.5) * a; this.pos.z += (Math.random() - 0.5) * a;
+      this.shakeAmt *= Math.exp(-5 * dt);
+    }
+    this.camera.position.copy(this.pos);
+    this.camera.lookAt(this.target);
+    if (Math.abs(this.camera.fov - this.fov) > 0.05) { this.camera.fov = this.fov; this.camera.updateProjectionMatrix(); }
+  }
+  updateFirstPerson(dt, ldx, ldy, s) {
+    const p = this.game.player;
+    this.yaw -= ldx * s * 0.9;
+    this.pitch = clamp(this.pitch - ldy * s * 0.9, -1.35, 1.3);
+    const fy = this.yaw + Math.PI;
+    const sp = Math.hypot(p.vel.x, p.vel.z);
+    this.bobT += dt * (1.2 + sp * 1.6);
+    const bob = Math.sin(this.bobT * 2) * 0.028 * Math.min(1, sp / 3);
+    const sway = Math.cos(this.bobT) * 0.018 * Math.min(1, sp / 3);
+    const scale = (p.char && p.char.scale) || 1;
+    const hidden = p.hidden; // inside a wardrobe
+    const eyeY = p.pos.y + (hidden ? 1.3 : (p.crouch ? 1.02 : 1.56) * scale) + bob;
+    const rx = -Math.cos(fy), rz = Math.sin(fy);
+    const ex = p.pos.x + Math.sin(fy) * 0.12 + rx * sway, ez = p.pos.z + Math.cos(fy) * 0.12 + rz * sway;
+    const cp = Math.cos(this.pitch);
+    this.pos.set(ex, eyeY, ez);
+    this.target.set(ex + Math.sin(fy) * cp, eyeY + Math.sin(this.pitch), ez + Math.cos(fy) * cp);
+    if (this.shakeAmt > 0.001) {
+      const a = this.shakeAmt * 0.06;
+      this.target.x += (Math.random() - 0.5) * a; this.target.y += (Math.random() - 0.5) * a; this.target.z += (Math.random() - 0.5) * a;
+      this.shakeAmt *= Math.exp(-5 * dt);
+    }
+    this.camera.position.copy(this.pos);
+    this.camera.lookAt(this.target);
+    if (p.char) p.char.object.visible = false;
+    this.fov = damp(this.fov, this.fovOverride || 72, 6, dt);
+    if (Math.abs(this.camera.fov - this.fov) > 0.05) { this.camera.fov = this.fov; this.camera.updateProjectionMatrix(); }
+  }
+  // sat in the car: eyes where your head is, looking round the cabin (and out of the windows)
+  updateCarFP(dt, v, side, ldx, ldy, s) {
+    const g = this.game, info = g.fleet.renderer.info(v.model);
+    const CI = g.carInterior;
+    if (CI) { CI.set(v); CI.update(); }
+    this.fpYaw = clamp((this.fpYaw || 0) - ldx * s * 0.8, -2.3, 2.3);
+    this.fpPitch = clamp((this.fpPitch || 0) - ldy * s * 0.8, -0.8, 0.6);
+    if (Math.abs(ldx) + Math.abs(ldy) < 0.5) { this.fpIdle = (this.fpIdle || 0) + dt; if (this.fpIdle > 2) { this.fpYaw = damp(this.fpYaw, 0, 1.5, dt); this.fpPitch = damp(this.fpPitch, -0.05, 1.5, dt); } } else this.fpIdle = 0;
+    // eyes a hand below the headlining even in the small old cars (never looking at the roof)
+    const lx = side * 0.38, ly = Math.min(info.seat.y + 0.78, (info.cabin ? info.cabin.H : v.spec.H) - 0.3), lz = info.seat.z - 0.05;
+    const r = v.roll || 0, pt = v.pitch || 0, h = v.heading;
+    const x1 = lx * Math.cos(r) - ly * Math.sin(r), y1 = lx * Math.sin(r) + ly * Math.cos(r);
+    const y2 = y1 * Math.cos(pt) - lz * Math.sin(pt), z2 = y1 * Math.sin(pt) + lz * Math.cos(pt);
+    const ex = v.x + x1 * Math.cos(h) + z2 * Math.sin(h), ez = v.z - x1 * Math.sin(h) + z2 * Math.cos(h), ey = (v.y || 0) + 0.02 + y2;
+    const yaw = h + this.fpYaw, cp = Math.cos(this.fpPitch);
+    this.pos.set(ex, ey, ez);
+    this.target.set(ex + Math.sin(yaw) * cp, ey + Math.sin(this.fpPitch), ez + Math.cos(yaw) * cp);
+    if (this.shakeAmt > 0.001) { const a = this.shakeAmt * 0.04; this.target.x += (Math.random() - 0.5) * a; this.target.y += (Math.random() - 0.5) * a; this.shakeAmt *= Math.exp(-5 * dt); }
+    this.camera.position.copy(this.pos);
+    this.camera.lookAt(this.target);
+    this.fov = damp(this.fov, 70, 6, dt);
+    if (Math.abs(this.camera.fov - this.fov) > 0.05) { this.camera.fov = this.fov; this.camera.updateProjectionMatrix(); }
+    this.yaw = yaw + Math.PI; // so leaving the car keeps the direction you were looking
+  }
+  // inside a container: eyes at the gap under the lid, looking round slowly
+  updatePeek(dt, ldx, ldy, s) {
+    const p = this.game.player, c = p.hideIn;
+    if (this.peekYaw !== undefined) { this.yaw = this.peekYaw - Math.PI; this.pitch = -0.08; this.peekYaw = undefined; }
+    this.yaw -= ldx * s * 0.6;
+    this.pitch = clamp(this.pitch - ldy * s * 0.6, -0.35, 0.25);
+    const fy = this.yaw + Math.PI;
+    const ex = c.x + Math.sin(fy) * 0.45, ez = c.z + Math.cos(fy) * 0.45, ey = 1.3 + Math.sin(this.game.time * 0.9) * 0.004;
+    const cp = Math.cos(this.pitch);
+    this.pos.set(ex, ey, ez);
+    this.target.set(ex + Math.sin(fy) * cp, ey + Math.sin(this.pitch), ez + Math.cos(fy) * cp);
+    this.camera.position.copy(this.pos);
+    this.camera.lookAt(this.target);
+    this.fov = damp(this.fov, 58, 6, dt);
+    if (Math.abs(this.camera.fov - this.fov) > 0.05) { this.camera.fov = this.fov; this.camera.updateProjectionMatrix(); }
+  }
+  // rifle scope: eye position, strong zoom, very fine mouse, slow breathing sway
+  updateScope(dt, ldx, ldy, s) {
+    const p = this.game.player;
+    const k = 0.26;
+    this.yaw -= ldx * s * k;
+    this.pitch = clamp(this.pitch - ldy * s * k, -1.1, 0.9);
+    this.scopeT = (this.scopeT || 0) + dt;
+    const sw = Math.sin(this.scopeT * 1.25) * 0.0024 + Math.sin(this.scopeT * 3.1) * 0.0006;
+    const sw2 = Math.sin(this.scopeT * 0.83 + 1.3) * 0.0019;
+    const fy = this.yaw + Math.PI;
+    const eyeY = p.pos.y + 1.5 * ((p.char && p.char.scale) || 1);
+    const ex = p.pos.x + Math.sin(fy) * 0.15, ez = p.pos.z + Math.cos(fy) * 0.15;
+    const cp = Math.cos(this.pitch + sw);
+    this.pos.set(ex, eyeY, ez);
+    this.target.set(ex + Math.sin(fy + sw2) * cp, eyeY + Math.sin(this.pitch + sw), ez + Math.cos(fy + sw2) * cp);
+    if (this.shakeAmt > 0.001) {
+      const a = this.shakeAmt * 0.05;
+      this.target.y += this.shakeAmt * 0.04; this.target.x += (Math.random() - 0.5) * a * 0.3;
+      this.shakeAmt *= Math.exp(-4 * dt);
+    }
+    this.camera.position.copy(this.pos);
+    this.camera.lookAt(this.target);
+    if (p.char) p.char.object.visible = false;
+    this.fov = damp(this.fov, 12.5, 12, dt);
+    if (Math.abs(this.camera.fov - this.fov) > 0.05) { this.camera.fov = this.fov; this.camera.updateProjectionMatrix(); }
+  }
+  // camera looks along yaw direction: forward vector used for relative movement
+  get forwardYaw() { return this.yaw + Math.PI; }
+
+  startCinematic(from, look, dur = 4, to = null) {
+    this.cinematic = { from: from.clone(), to: (to || from).clone(), look: look.clone(), t: 0, dur };
+  }
+  updateCinematic(dt) {
+    const c = this.cinematic;
+    c.t += dt;
+    const u = clamp(c.t / c.dur, 0, 1);
+    const e = u * u * (3 - 2 * u);
+    this.camera.position.lerpVectors(c.from, c.to, e);
+    this.camera.lookAt(c.look);
+    if (this.camera.fov !== 50) { this.camera.fov = 50; this.camera.updateProjectionMatrix(); }
+  }
+  endCinematic() { this.cinematic = null; this.fov = 62; }
+}

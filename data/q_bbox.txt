@@ -1,0 +1,7 @@
+[out:json][timeout:60];
+area["name"="Guareña"]["boundary"="administrative"]->.a;
+(
+  node["place"](area.a);
+  way["landuse"="residential"](area.a);
+);
+out center tags;

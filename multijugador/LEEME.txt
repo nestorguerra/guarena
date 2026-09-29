@@ -1,0 +1,42 @@
+GUAREÑA · MULTIJUGADOR
+======================
+
+Quien invita (tú)
+-----------------
+1. Haz doble clic en «Jugar multijugador.command» (en Windows: «Jugar multijugador (Windows).bat»).
+   Se abre una ventana negra (el servidor) y el juego en tu navegador. Deja esa ventana abierta.
+   - La primera vez, macOS puede preguntar si «python3» puede aceptar conexiones: pulsa «Permitir».
+   - Si macOS dice que no puede abrirlo: clic derecho sobre el archivo → Abrir → Abrir.
+2. En el juego, entra en «Multijugador».
+3. Pásale a tu amigo el enlace:
+   - Si está en tu misma WiFi: el enlace «Misma WiFi».
+   - Si está en otra casa: pulsa «Crear enlace» (Por internet) y mándale ese enlace.
+4. Cuando los dos pulséis «¡Estoy listo!», salís juntos desde la Plaza de España.
+
+Tu amigo
+--------
+Solo tiene que abrir el enlace en su navegador (Chrome, Edge, Safari o Firefox), entrar en
+«Multijugador» y pulsar «¡Estoy listo!». No tiene que instalar nada. Por internet, la primera
+carga tarda un poco (el juego pesa unos 7 MB).
+
+Jugando juntos
+--------------
+- Os veis por la calle con vuestro nombre encima; en el radar y en el mapa sale un punto de color.
+- T: escribir en el chat (Intro para enviar). En el móvil: botón 💬.
+- F junto al coche de tu amigo: te subes de copiloto. F otra vez: te bajas.
+- Si uno marca un destino en el mapa (M), al otro también le aparece.
+- La hora del día es la de quien abre la sala.
+- Cada uno lleva su dinero, sus misiones y su nivel de búsqueda; el tráfico y los peatones
+  son de cada uno.
+- Caben hasta 8 jugadores. Si alguien llega tarde, aparece al lado de los demás.
+
+Si algo falla
+-------------
+- «No se pudo conectar»: comprueba que la ventana del servidor sigue abierta.
+- El enlace por internet es gratuito (localhost.run) y cambia de vez en cuando: si cambia,
+  el juego te enseña el nuevo para que se lo pases a tu amigo. Si tienes «cloudflared»
+  instalado, el servidor usa Cloudflare, que es más estable.
+- Para cerrar el servidor: cierra su ventana o pulsa Ctrl + C.
+
+Hace falta Python 3 en el ordenador de quien invita (en macOS suele venir ya instalado:
+si no, https://www.python.org/downloads/).

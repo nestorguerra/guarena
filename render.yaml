@@ -1,0 +1,16 @@
+# Servidor multijugador de Guareña en Render (https://render.com), plan gratuito.
+# En Render: New → Blueprint → este repositorio. Empaqueta el juego y arranca el servidor, que lo sirve a los
+# jugadores y los conecta entre sí (WebSocket, o sondeo HTTP si algo corta los WebSocket). Solo biblioteca estándar.
+services:
+  - type: web
+    name: guarena
+    runtime: python
+    plan: free
+    region: frankfurt
+    buildCommand: python3 tools/build.py
+    startCommand: python3 multijugador/servidor.py --nube
+    healthCheckPath: /mp/info
+    autoDeployTrigger: commit
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7

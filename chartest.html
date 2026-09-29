@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><title>Personajes test</title>
+<style>html,body{margin:0;height:100%;background:#888;overflow:hidden}</style>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+</head><body>
+<script type="module">
+import * as THREE from 'three';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { CharacterFactory, PLAYER_PRESETS, randomDesc } from './src/characters.js';
+import { mulberry32 } from './src/util.js';
+const r = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+r.setSize(innerWidth, innerHeight); r.setPixelRatio(1.5);
+r.toneMapping = THREE.ACESFilmicToneMapping; r.shadowMap.enabled = true;
+document.body.appendChild(r.domElement);
+const scene = new THREE.Scene(); scene.background = new THREE.Color(0xb8c4cc);
+const pm = new THREE.PMREMGenerator(r); scene.environment = pm.fromScene(new RoomEnvironment(), 0.04).texture; scene.environmentIntensity = 0.5;
+const cam = new THREE.PerspectiveCamera(35, innerWidth / innerHeight, 0.1, 100);
+const q = new URLSearchParams(location.search);
+const mode = q.get('m') || 'presets';
+cam.position.set(0, 1.35, mode === 'close' ? 2.2 : 9.5); cam.lookAt(0, mode === 'close' ? 1.45 : 0.95, 0);
+const sun = new THREE.DirectionalLight(0xfff2e0, 2.5); sun.position.set(3, 6, 5); sun.castShadow = true; scene.add(sun);
+scene.add(new THREE.HemisphereLight(0xcfe3ff, 0x806850, 0.8));
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), new THREE.MeshStandardMaterial({ color: 0xc8bca8 })); ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
+const f = new CharacterFactory();
+const chars = [];
+const list = mode === 'peds' ? Array.from({ length: 8 }, (_, i) => randomDesc(mulberry32(i * 77 + 3))) : PLAYER_PRESETS;
+list.forEach((d, i) => { const c = f.create(d); c.object.position.x = (i - (list.length - 1) / 2) * 1.05; c.object.rotation.y = mode === 'side' ? Math.PI / 2 : 0; scene.add(c.object); chars.push(c); });
+const speed = parseFloat(q.get('s') || '0');
+const base = q.get('b');
+if (base) chars.forEach(c => c.setBase(base));
+if (mode === 'close') { chars.forEach((c, i) => c.object.visible = i === parseInt(q.get('i') || '0')); chars.forEach(c => c.object.position.x = 0); }
+let last = performance.now();
+function loop() { const now = performance.now(); const dt = Math.min(0.05, (now - last) / 1000); last = now; chars.forEach(c => c.update(dt, speed, {})); if (q.get('punch')) chars.forEach(c => { if (!c.action) c.play('punch', 0.45); }); r.render(scene, cam); requestAnimationFrame(loop); }
+loop();
+window.chars = chars;
+</script></body></html>

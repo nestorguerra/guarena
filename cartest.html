@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><title>Coches test</title>
+<style>html,body{margin:0;height:100%;background:#888;overflow:hidden}</style>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+</head><body>
+<script type="module">
+import * as THREE from 'three';
+import { Sky } from 'three/addons/objects/Sky.js';
+import { VehicleRenderer, Vehicle, MODELS, makeTmp } from './src/vehicles.js';
+const r = new THREE.WebGLRenderer({ antialias: true });
+r.setSize(innerWidth, innerHeight); r.setPixelRatio(1.5);
+r.toneMapping = THREE.ACESFilmicToneMapping; r.toneMappingExposure = 0.6; r.shadowMap.enabled = true; r.shadowMap.type = THREE.PCFSoftShadowMap;
+document.body.appendChild(r.domElement);
+const scene = new THREE.Scene();
+const sky = new Sky(); sky.scale.setScalar(1000); const su = sky.material.uniforms; su.turbidity.value = 4; su.rayleigh.value = 1.5; su.sunPosition.value.set(0.5, 0.35, 0.6);
+const es = new THREE.Scene(); es.add(sky.clone());
+const pm = new THREE.PMREMGenerator(r); scene.environment = pm.fromScene(es).texture; scene.environmentIntensity = 0.6;
+scene.add(sky);
+const q = new URLSearchParams(location.search);
+const cam = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.1, 500);
+const view = q.get('v') || 'front';
+if (view === 'front') { cam.position.set(6, 3.2, 14); cam.lookAt(0, 0.6, 0); }
+else if (view === 'rear') { cam.position.set(-6, 3.2, -12); cam.lookAt(0, 0.6, 0); }
+else { cam.position.set(18, 2.5, 3); cam.lookAt(0, 0.8, 3); }
+const sun = new THREE.DirectionalLight(0xfff2e0, 3); sun.position.set(10, 12, 12); sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048);
+const sc = sun.shadow.camera; sc.left = -20; sc.right = 20; sc.top = 20; sc.bottom = -20; scene.add(sun);
+scene.add(new THREE.HemisphereLight(0xcfe3ff, 0x806850, 0.6));
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), new THREE.MeshStandardMaterial({ color: 0x7a7874, roughness: 0.9 })); ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
+const vr = new VehicleRenderer(scene, 20);
+const tmp = makeTmp();
+const keys = Object.keys(MODELS);
+const vs = keys.map((k, i) => { const v = new Vehicle(k, (i % 5 - 2) * 3.2, Math.floor(i / 5) * -7, 0.35); vr.alloc(v); v.lights = true; vr.setLights(v, q.get('night') ? 1 : 0, q.get('night') ? 0.5 : 0, 1); v.writeMatrix(vr, tmp); return v; });
+vr.flush();
+function loop() { r.render(scene, cam); requestAnimationFrame(loop); }
+loop();
+window.vs = vs; window.vr = vr;
+</script></body></html>

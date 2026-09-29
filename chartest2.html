@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><title>Builder test</title>
+<style>html,body{margin:0;height:100%;background:#9aa;overflow:hidden;font:12px monospace}#log{position:fixed;left:8px;top:8px;color:#fff;background:rgba(0,0,0,.5);padding:6px;white-space:pre}</style>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+</head><body><div id="log"></div>
+<script type="module">
+import * as THREE from 'three';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { charBuilderMain } from './src/charbuild.js';
+self.__dbg = true; const B = charBuilderMain();
+const q = new URLSearchParams(location.search);
+const r = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+r.setSize(innerWidth, innerHeight); r.setPixelRatio(1.5); r.toneMapping = THREE.ACESFilmicToneMapping;
+document.body.appendChild(r.domElement);
+const scene = new THREE.Scene(); scene.background = new THREE.Color(0xb8c4cc);
+const pm = new THREE.PMREMGenerator(r); scene.environment = pm.fromScene(new RoomEnvironment(), 0.04).texture; scene.environmentIntensity = 0.6;
+const cam = new THREE.PerspectiveCamera(30, innerWidth / innerHeight, 0.05, 100);
+const sun = new THREE.DirectionalLight(0xfff2e0, 2.2); sun.position.set(2, 4, 5); scene.add(sun);
+scene.add(new THREE.HemisphereLight(0xcfe3ff, 0x806850, 0.6));
+const PAL = { 0: '#e3b48f', 1: '#2f5fa8', 2: '#24477f', 3: '#2f4f7a', 4: '#273f63', 5: '#3a2a1c', 6: '#c8c8c8', 7: '#f2f2f2', 8: '#e8e8e8', 9: '#ffffff', 10: '#b8302a', 11: '#3b2618', 12: '#c8202a', 13: '#f2efe8', 14: '#5a3b22', 15: '#0c0c0e', 16: '#1a1410', 17: '#1f4a3a', 18: '#173a2d', 19: '#101012', 20: '#202022', 21: '#18b35c', 22: '#0c5d2f', 23: '#5a3a22', 24: '#f0ece0', 25: '#5a2a2a', 26: '#e3b48f', 27: '#3b2618', 28: '#f4f4f4', 29: '#d9a383', 30: '#ddd', 31: '#f0c8b8' };
+const specs = q.get('specs') ? JSON.parse(q.get('specs')) : null;
+if (specs) { // lineup of heads (3/4 view)
+  const PAL2 = PAL;
+  specs.forEach((sp, i) => {
+    const rr = B.build({ key: 'l' + i, g: 'm', top: 'tshirt', bottom: 'jeans', hair: 'corto', shoe: 'sneaker', lods: [1], only: ['head', 'hair', 'hat'], ...sp });
+    const l = rr.lods[0];
+    const gg = new THREE.BufferGeometry();
+    gg.setAttribute('position', new THREE.BufferAttribute(l.pos, 3));
+    gg.setAttribute('normal', new THREE.BufferAttribute(l.nrm, 3, true));
+    const cc = new Float32Array(l.nv * 3), c2 = new THREE.Color();
+    for (let k = 0; k < l.nv; k++) { c2.set(PAL2[l.reg[k]] || '#f0f'); const a = l.ao[k] / 255; cc[k * 3] = c2.r * a; cc[k * 3 + 1] = c2.g * a; cc[k * 3 + 2] = c2.b * a; }
+    gg.setAttribute('color', new THREE.BufferAttribute(cc, 3));
+    gg.setIndex(new THREE.BufferAttribute(l.index, 1));
+    const m = new THREE.Mesh(gg, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7 }));
+    const cols = Math.min(specs.length, 4);
+    m.position.set(((i % cols) - (cols - 1) / 2) * 0.3, -Math.floor(i / cols) * 0.36, 0);
+    m.rotation.y = parseFloat(q.get('ry') || '0.5');
+    scene.add(m);
+  });
+  cam.position.set(0, 1.55, 1.9); cam.lookAt(0, 1.5, 0);
+  function loop2() { r.render(scene, cam); requestAnimationFrame(loop2); }
+  loop2();
+  throw 'lineup';
+}
+const spec = JSON.parse(q.get('spec') || '{}');
+const S = { key: 'test', g: 'm', top: 'tshirt', bottom: 'jeans', hair: 'corto', shoe: 'sneaker', lods: [1], ...spec };
+const t0 = performance.now();
+const res = B.build(S);
+const t1 = performance.now();
+const lod = res.lods[+(q.get('lod') || 0)];
+const g = new THREE.BufferGeometry();
+g.setAttribute('position', new THREE.BufferAttribute(lod.pos, 3));
+g.setAttribute('normal', new THREE.BufferAttribute(lod.nrm, 3, true));
+const col = new Float32Array(lod.nv * 3);
+const c = new THREE.Color();
+for (let i = 0; i < lod.nv; i++) { c.set(PAL[lod.reg[i]] || '#ff00ff'); const a = q.get('ao') === '0' ? 1 : lod.ao[i] / 255; col[i * 3] = c.r * a; col[i * 3 + 1] = c.g * a; col[i * 3 + 2] = c.b * a; }
+g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+g.setIndex(new THREE.BufferAttribute(lod.index, 1));
+const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, wireframe: q.get('wire') === '1' });
+const mesh = new THREE.Mesh(g, mat);
+scene.add(mesh);
+const view = q.get('v') || 'full';
+const ry = parseFloat(q.get('ry') || '0');
+mesh.rotation.y = ry;
+if (view === 'heads') { // three views of the head side by side
+  mesh.position.x = -0.24; mesh.rotation.y = 0;
+  const m2 = new THREE.Mesh(g, mat); m2.rotation.y = Math.PI / 2; m2.position.x = 0.0; scene.add(m2);
+  const m3 = new THREE.Mesh(g, mat); m3.rotation.y = 0.6; m3.position.x = 0.24; scene.add(m3);
+  cam.position.set(0, 1.67, 1.15); cam.lookAt(0, 1.66, 0);
+}
+if (view === 'full') { cam.position.set(0, 1.0, 5.2); cam.lookAt(0, 0.92, 0); }
+else if (view === 'head') { cam.position.set(0, 1.68, 0.75); cam.lookAt(0, 1.66, 0); }
+else if (view === 'hand') { cam.position.set(0.9, 0.85, 0.5); cam.lookAt(0.45, 0.85, 0); }
+else if (view === 'feet') { cam.position.set(0.5, 0.25, 0.9); cam.lookAt(0.1, 0.06, 0.05); }
+else if (view === 'torso') { cam.position.set(0, 1.25, 2.0); cam.lookAt(0, 1.2, 0); }
+document.getElementById('log').textContent = `build ${Math.round(t1 - t0)} ms  (worker-reported ${res.ms})\nverts ${lod.nv}  tris ${lod.index.length / 3}\n` + JSON.stringify(res.times);
+function loop() { r.render(scene, cam); requestAnimationFrame(loop); }
+loop();
+window.res = res;
+</script></body></html>

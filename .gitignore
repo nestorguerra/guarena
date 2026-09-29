@@ -1,0 +1,19 @@
+# macOS
+.DS_Store
+
+# se generan con «python3 tools/build.py»
+dist/
+multijugador/guarena.html
+
+# capturas y copias de las pruebas de desarrollo, configuración local
+.snaps/
+.backup/
+.claude/
+
+# descargas del Catastro (grandes; se vuelven a bajar con tools/fetch_catastro.py) y datos de prueba
+data/cat/
+data/*_test.*
+data/test.osm
+
+__pycache__/
+*.pyc

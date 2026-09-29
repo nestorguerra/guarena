@@ -1,0 +1,61 @@
+GUAREÑA · VEGAS ALTAS — juego de mundo abierto en el Guareña real (Badajoz)
+============================================================================
+
+JUGAR
+-----
+- Abre dist/guarena.html con Chrome, Edge, Safari o Firefox (con WebGL2).
+  Es un único archivo con todo dentro; la primera vez necesita internet para
+  descargar la librería 3D (three.js).
+- Versión publicada: https://claude.ai/artifact/9qCdppEARAj9U9BAdtZFHc
+
+MULTIJUGADOR
+------------
+- Carpeta multijugador/: doble clic en «Jugar multijugador.command» (Windows: el .bat).
+  Abre un servidor pequeño en tu ordenador y el juego; en «Multijugador» verás el enlace
+  para tu amigo (misma WiFi o por internet). Más detalles en multijugador/LEEME.txt.
+- python3 multijugador/servidor.py --dev   sirve el código fuente en vez del juego empaquetado.
+
+DESARROLLAR
+-----------
+Hace falta Python 3.
+
+  python3 tools/devserver.py 8918
+      Servidor local. Abre http://localhost:8918/index.html (código fuente, sin empaquetar).
+      http://localhost:8918/debug.html es un visor libre del mapa (cámara con teclado y ratón).
+
+  python3 tools/build.py
+      Empaqueta index.html + src/ + data/map.json + assets/ en un solo archivo:
+      dist/guarena.html (el juego) y dist/test.html.
+
+  python3 tools/build_map.py
+      Regenera data/map.json a partir de OpenStreetMap (data/guarena.osm) y del
+      Catastro (data/cat/). tools/fetch_catastro.py descarga de nuevo los edificios.
+
+CARPETAS
+--------
+  index.html     Página del juego (pantallas, HUD, estilos).
+  src/           Código del juego (JavaScript, módulos ES):
+                   game.js / main.js     arranque, bucle principal, menús
+                   world.js, buildings.js, facades.js, ground.js, landmarks.js,
+                   props.js, signs.js, pantano.js, sky.js     el pueblo y su entorno
+                   charbuild.js, characters.js, perks.js      personajes, animación, ventajas
+                   player.js, vehicles.js, fleet.js, traffic.js, police.js, peds.js
+                   weapons.js, gunmodels.js, gunrig.js, viewmodel.js
+                   missions.js, activities.js, interiors.js (casas, casa de Annie),
+                   horror.js, zombies.js, hud.js, audio.js, input.js...
+  assets/tex/    Texturas fotográficas (Poly Haven, CC0).
+  assets/snd/    Sonidos de terror y zombis (OpenGameArt, CC0).
+  data/          Datos del mapa: OpenStreetMap, Catastro (INSPIRE) y map.json.
+  tools/         Empaquetado, servidor local, generación del mapa y herramientas de
+                 prueba (playtest.js, charlab.js, snap.js, guntest.js, sheet.py).
+  dist/          Juego empaquetado listo para jugar.
+  .snaps/        Capturas de las pruebas de desarrollo (se pueden borrar).
+  debug.html     Visor libre del mapa (src/debug.js).
+  cartest.html, chartest.html, chartest2.html   páginas de prueba antiguas (coches y personajes).
+  .claude/       Configuración del servidor local para Claude Code.
+
+CRÉDITOS
+--------
+Callejero © colaboradores de OpenStreetMap (ODbL). Edificios: Dirección General del
+Catastro (INSPIRE). Texturas: Poly Haven (CC0). Sonidos: OpenGameArt (CC0).
+Personajes, vehículos, historias y misiones son ficticios.

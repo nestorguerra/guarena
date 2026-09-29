@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><title>Anim test</title>
+<style>html,body{margin:0;height:100%;background:#9aa;overflow:hidden;font:12px monospace}#log{position:fixed;left:8px;top:8px;color:#fff;background:rgba(0,0,0,.5);padding:6px;white-space:pre}</style>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+</head><body><div id="log">loading…</div>
+<script type="module">
+// Dev-only animation bench: characters with the game's material on a plain ground; drive them from the console.
+import * as THREE from 'three';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { CharacterFactory, PLAYER_PRESETS } from './src/characters.js';
+const r = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+r.setSize(innerWidth, innerHeight); r.setPixelRatio(1); r.toneMapping = THREE.ACESFilmicToneMapping; r.outputColorSpace = THREE.SRGBColorSpace;
+r.shadowMap.enabled = true; r.shadowMap.type = THREE.PCFSoftShadowMap;
+document.body.appendChild(r.domElement);
+const scene = new THREE.Scene(); scene.background = new THREE.Color(0xa9bccb);
+const pm = new THREE.PMREMGenerator(r); scene.environment = pm.fromScene(new RoomEnvironment(), 0.04).texture; scene.environmentIntensity = 0.45;
+const cam = new THREE.PerspectiveCamera(30, innerWidth / innerHeight, 0.05, 200);
+const sun = new THREE.DirectionalLight(0xfff0dc, 2.6); sun.position.set(4, 8, 6); sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, { left: -8, right: 8, top: 8, bottom: -8, near: 0.5, far: 40 }); scene.add(sun);
+scene.add(new THREE.HemisphereLight(0xcfe3ff, 0x8a7760, 0.9));
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), new THREE.MeshStandardMaterial({ color: 0xb9ab94, roughness: 0.95 }));
+ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
+const grid = new THREE.GridHelper(60, 60, 0x7d705e, 0x9a8d78); grid.position.y = 0.002; scene.add(grid);
+const factory = new CharacterFactory({ noCache: true });
+const T = window.T = { THREE, scene, cam, r, factory, chars: [], PLAYER_PRESETS };
+T.add = (desc, x = 0, z = 0, ry = 0) => { const c = factory.create(desc); c.object.position.set(x, 0, z); c.object.rotation.y = ry; scene.add(c.object); T.chars.push(c); return c; };
+T.clear = () => { for (const c of T.chars) { scene.remove(c.object); c.dispose(); } T.chars.length = 0; };
+T.ready = () => T.chars.every((c) => c.ready);
+T.wait = async (ms = 20000) => { const t0 = performance.now(); while (!T.ready() && performance.now() - t0 < ms) await new Promise((res) => setTimeout(res, 100)); return T.ready(); };
+T.look = (x, y, z, tx, ty, tz, fov = 30) => { cam.position.set(x, y, z); cam.lookAt(tx, ty, tz); cam.fov = fov; cam.aspect = innerWidth / innerHeight; cam.updateProjectionMatrix(); };
+T.render = () => { factory.updateLods(cam.position, true); for (const c of T.chars) c.object.traverse((o) => { if (o.isMesh) o.castShadow = true; }); r.render(scene, cam); };
+T.snap = async (name) => { T.render(); const url = r.domElement.toDataURL('image/jpeg', 0.9); const res = await fetch('/__snap?name=' + name, { method: 'POST', body: url }); return res.status; };
+// step every character: fn(c, i, t) returns [speed, opts] for that frame
+T.run = (sec, fn, dt = 1 / 60) => { const n = Math.round(sec / dt); for (let k = 0; k < n; k++) T.chars.forEach((c, i) => { const [sp, o] = fn ? fn(c, i, k * dt) : [0, {}]; c.update(dt, sp, o || {}); }); };
+// a grid of views in one image: cells [{label, setup(), eye:[x,y,z], at:[x,y,z], fov}]
+T.grid = async (name, cells, cols = 3, W = 360, H = 300) => {
+  T.pause = true; const rows = Math.ceil(cells.length / cols); const cv = document.createElement('canvas'); cv.width = W * cols; cv.height = H * rows; const x2 = cv.getContext('2d');
+  const old = new THREE.Vector2(); r.getSize(old); r.setSize(W, H, false); cam.aspect = W / H;
+  for (let i = 0; i < cells.length; i++) {
+    const c = cells[i]; if (c.setup) c.setup(); if (c.eye) { cam.position.set(...c.eye); cam.lookAt(...c.at); }
+    cam.fov = c.fov || 30; cam.updateProjectionMatrix(); factory.updateLods(cam.position, true); r.render(scene, cam);
+    x2.drawImage(r.domElement, 0, 0, W, H, (i % cols) * W, Math.floor(i / cols) * H, W, H);
+    x2.fillStyle = '#000'; x2.font = '14px monospace'; x2.fillText(c.label || String(i), (i % cols) * W + 6, Math.floor(i / cols) * H + 16);
+  }
+  r.setSize(old.x, old.y, false); cam.aspect = old.x / old.y; cam.updateProjectionMatrix(); T.pause = false;
+  const res = await fetch('/__snap?name=' + name, { method: 'POST', body: cv.toDataURL('image/jpeg', 0.9) }); return res.status;
+};
+// head views of character c: front, three-quarter, profile (portrait lens)
+T.headViews = (c, lab = '', angs = [[0, 'front'], [0.7, '3/4'], [Math.PI / 2, 'profile']], dist = 1.6, fov = 10) => {
+  const h = c.bones.head.getWorldPosition(new THREE.Vector3()), ry = c.object.rotation.y, y = h.y + 0.06;
+  return angs.map(([a, l]) => ({ label: lab + ' ' + l, eye: [h.x + Math.sin(ry + a) * dist, y + 0.02, h.z + Math.cos(ry + a) * dist], at: [h.x, y, h.z], fov }));
+};
+T.still = (c) => { c.blinkT = 99; c.lookGoal = [0, 0]; c.lookCur = [0, 0]; c.lookClock = 99; c.gazeT = 99; c.gazeGoal = [0, 0]; c.gaze = [0, 0]; };
+T.look(0, 1.2, 7, 0, 1.0, 0);
+document.getElementById('log').textContent = 'ready';
+function loop() { requestAnimationFrame(loop); if (!T.pause) T.render(); }
+loop();
+</script>
+</body></html>
