@@ -4,6 +4,7 @@
 // to the last place you were seen and comb the streets around it; officers get out, look behind things and open
 // containers. Hide (a container, a house) or get far away and the stars go out; if they saw you go in, they know.
 // Cars chase over the real street graph (A*), ram at high levels; officers arrest on foot.
+import * as THREE from 'three';
 import { driveToward, lanePoint, followRoute, turnSpeed } from './traffic.js';
 import { clamp, dampAngle, lerp, wrapAngle } from './util.js';
 import { PERK } from './perks.js';
@@ -204,7 +205,7 @@ export class Police {
       out.push({ x: v.x, z: v.z, h: v.heading, R: 80, cone: 1.75, near: 6, ey: 1.4, u });
     }
     for (const o of this.officers) {
-      if (o.state === 'ko' || o.state === 'dead') continue;
+      if (o.state === 'ko' || o.state === 'dead' || o.state === 'getup') continue;
       out.push({ x: o.x, z: o.z, h: o.heading, R: 55, cone: 1.2, near: 2.5, ey: 1.65, o });
     }
     return out;
@@ -269,7 +270,7 @@ export class Police {
   nearestOfficer(x, z, r) {
     let best = null, bd = r;
     for (const o of this.officers) {
-      if (o.state === 'ko' || o.state === 'dead') continue;
+      if (o.state === 'ko' || o.state === 'dead' || o.state === 'getup') continue;
       const d = Math.hypot(o.x - x, o.z - z);
       if (d < bd) { bd = d; best = o; }
     }
@@ -365,18 +366,26 @@ export class Police {
         const fx = Math.sin(v.heading), fz = Math.cos(v.heading);
         const lx = o.x - v.x, lz = o.z - v.z;
         if (Math.abs(lx * fx + lz * fz) < v.hl + 0.3 && Math.abs(-lx * fz + lz * fx) < v.hw + 0.3) {
-          o.state = 'ko'; o.koT = 5 + Math.random() * 3; o.char.setBase('lie'); o.hp = 100;
+          o.state = 'ko'; o.koT = 4 + Math.random() * 3; o.hp = 100;
+          this.fall(o, { vel: [fx * v.vel * 0.9, 1.6 + v.vel * 0.13, fz * v.vel * 0.9], legs: 0.5, up: -0.2, tone: 0.55 });
           g.audio.sfx('punch_hit', { x: o.x, z: o.z, vol: 1.2 });
           if (v.driver === 'player') this.crime('policia', o.x, o.z);
           break;
         }
       }
       if ((o.chk = (o.chk ?? 1) - dt) <= 0) { o.chk = 1; if (this.map.buildingAt(o.x, o.z)) this.placeOutside(o, o.x, o.z); }
-      if (o.state === 'ko' || o.state === 'dead') {
-        o.koT -= dt;
-        o.char.object.rotation.x = -Math.PI / 2; o.char.object.position.set(o.x, 0.14, o.z);
-        if (o.state === 'ko' && o.koT <= 0) { o.state = 'run'; o.char.setBase(null); o.char.object.rotation.x = 0; }
+      if (o.state === 'ko' || o.state === 'dead' || o.state === 'getup') {
+        // down (the ragdoll has the body), then up again and back after you
         o.char.update(dt, 0, {});
+        if (o.char.rag) { const rp = o.char.ragPos(this._rp || (this._rp = new THREE.Vector3())); o.x = rp.x; o.z = rp.z; }
+        if (o.state === 'ko' && (o.koT -= dt) <= 0) {
+          const up = o.char.getUp();
+          if (up) { o.x = up.x; o.z = up.z; o.heading = up.heading; }
+          o.state = 'getup';
+        } else if (o.state === 'getup') {
+          o.char.object.position.set(o.x, 0, o.z); o.char.object.rotation.set(0, o.heading, 0);
+          if (!o.char.gettingUp) { o.state = 'run'; o.char.setBase(null); }
+        }
         continue;
       }
       let speed = 0;
@@ -701,27 +710,34 @@ export class Police {
   hitTest(x, z, r) {
     let best = null, bd = r;
     for (const o of this.officers) {
-      if (o.state === 'ko' || o.state === 'dead') continue;
+      if (o.state === 'ko' || o.state === 'dead' || o.state === 'getup') continue;
       const d = Math.hypot(o.x - x, o.z - z);
       if (d < bd) { bd = d; best = o; }
     }
     return best;
   }
   punched(o, fx, fz) { this.damageOfficer(o, 30, fx * 3, fz * 3); }
+  // the body goes limp and falls (a ragdoll: see Character.ragdoll)
+  fall(o, opts) {
+    const col = this.map.collider;
+    this.ragEnv = this.ragEnv || { floor: () => 0, collide: (p, r) => col.resolveCircle(p, r), crosses: (ax, az, bx, bz) => col.crosses && col.crosses(ax, az, bx, bz) };
+    o.char.ragdoll({ env: this.ragEnv, ...opts });
+  }
   damageOfficer(o, dmg, kx = 0, kz = 0) {
+    if (o.char.rag) o.char.rag.push(9, kx * 0.35, 0.3, kz * 0.35); // a body on the ground jerks with the blow
     if (o.state === 'dead') return;
     const g = this.game;
     o.hp -= dmg;
     o.char.play('hit', 0.4);
     if (o.hp <= 0) {
-      o.state = 'dead'; o.koT = 1e9; o.char.setBase('lie');
-      o.x += kx * 0.15; o.z += kz * 0.15;
+      o.state = 'dead'; o.koT = 1e9;
+      this.fall(o, { vel: [kx * 0.8, 0.2, kz * 0.8], up: 0.6, buckle: 0.9, tone: 0.1, dead: true });
       g.effects.pool(o.x, o.z, 0.8);
       this.crime('policia_muerto', o.x, o.z);
       if (g.pickups && Math.random() < 0.6) g.pickups.weapon(o.x + 0.6, o.z, 'pistola', 12);
       return;
     }
-    if (o.hp <= 40 && Math.random() < 0.6) { o.state = 'ko'; o.koT = 6; o.char.setBase('lie'); o.hp = 60; }
+    if (o.hp <= 40 && Math.random() < 0.6 && o.state !== 'ko') { o.state = 'ko'; o.koT = 6; o.hp = 60; this.fall(o, { vel: [kx * 0.8, 0.7, kz * 0.8], up: 0.8, legs: -0.3, tone: 0.75 }); }
     this.crime('policia', o.x, o.z);
   }
   // an officer fires at the player (misses more at range and when you move fast)

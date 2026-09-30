@@ -7,6 +7,7 @@
 import * as THREE from 'three';
 import { randomDesc } from './characters.js';
 import { mulberry32, clamp } from './util.js';
+const type2vol = (t) => (t === 'blast' ? 1.2 : t === 'plank' ? 1.1 : 0.9); // how hard a body hits the ground
 
 const GROANS = ['z1', 'z2', 'z3', 'z4', 'z5', 'z6'];
 const pick = (a) => a[Math.floor(Math.random() * a.length)];
@@ -157,6 +158,17 @@ export class Zombies {
     };
     if (type === 'blast') { const s = kind === 'car' ? 0.55 : 0.35; z.vx = kx * s; z.vz = kz * s; z.vy = 2.2 + kl * 0.12; }
     else { z.vx = kx * 0.08; z.vz = kz * 0.08; z.vy = 0; }
+    // the body goes down limp (a ragdoll): thrown by a blast or a car, straight over from a head shot, spun round by a
+    // blow, or the knees going first
+    const col = g.map.collider;
+    this.ragEnv = this.ragEnv || { floor: () => 0, collide: (p, r) => col.resolveCircle(p, r), crosses: (ax, az, bx, bz) => col.crosses && col.crosses(ax, az, bx, bz) };
+    const ro = type === 'blast' ? { vel: [z.vx, z.vy * 0.8, z.vz], legs: kind === 'car' ? 0.5 : 0, up: 0.3 }
+      : type === 'plank' ? { vel: [kx * 0.1, 0, kz * 0.1], up: 1.3 }
+      : type === 'spin' ? { vel: [kx * 0.12, 0.3, kz * 0.12], up: 0.9 }
+      : type === 'flat' ? { vel: [0, 0, 0] }
+      : { buckle: 1, vel: [kx * 0.06, 0, kz * 0.06], up: 0.4 };
+    z.char.object.updateMatrixWorld(true);
+    z.char.ragdoll({ env: this.ragEnv, tone: 0.05, dead: true, ...ro });
     if (type === 'plank') {
       g.effects.blood(z.x, 1.62, z.z, kl > 0.01 ? kx / kl : 0, kl > 0.01 ? kz / kl : 0);
       g.effects.blood(z.x, 1.6, z.z, kl > 0.01 ? kx / kl : 0, kl > 0.01 ? kz / kl : 0);
@@ -213,7 +225,7 @@ export class Zombies {
       if (cd < 50 || z.animAcc > 0.1) {
         const walkSp = z.state === 'walk' || z.state === 'lunge' ? z.speed * (z.runner ? 1 : 1.4) : 0;
         z.char.update(z.animAcc, walkSp, {});
-        this.pose(z, z.animAcc, d);
+        if (!z.char.rag) this.pose(z, z.animAcc, d);
         z.animAcc = 0;
       }
       if (z.state === 'walk' || z.state === 'lunge' || z.state === 'rise') { o.position.set(z.x, z.y || 0, z.z); o.rotation.set(z.rootPitch || 0, z.heading, z.rootRoll || 0); }
@@ -316,6 +328,14 @@ export class Zombies {
   stepDeath(z, dt, col) {
     const g = this.game, D = z.die;
     D.t += dt;
+    if (z.char.rag) {
+      // the ragdoll has it: follow the body; the thud when it hits the ground; still, and it is over
+      const rag = z.char.rag, rp = z.char.ragPos(this._rp || (this._rp = new THREE.Vector3()));
+      z.x = rp.x; z.z = rp.z; z.y = 0;
+      if (rag.landed && !D.landed) { D.landed = true; D.tl = D.t; this.land(z, type2vol(D.type)); }
+      if (rag.sleeping || D.t > 4) { z.state = 'dead'; z.deadT = 0; }
+      return;
+    }
     if (D.type === 'blast' && !D.landed) {
       z.vy -= 13 * dt;
       const nx = z.x + z.vx * dt, nz = z.z + z.vz * dt;

@@ -313,8 +313,8 @@ export class Game {
     const p = this.player;
     if (this.mode === 'zombis') {
       this.state = 'ended';
-      p.mode = 'dead'; p.char.setBase('lie'); p.char.object.visible = true; p.char.object.rotation.x = -Math.PI / 2; p.char.object.position.y = 0.14;
       if (p.vehicle) p.exitVehicle(true);
+      p.mode = 'dead'; p.char.object.visible = true; this.collapse(p);
       this.audio.sfx('wasted');
       const Z = this.zombieSys, k = Z.kills;
       const kills = k === 0 ? 'sin abatir a ningún zombi' : k === 1 ? 'con un zombi abatido' : `con ${k} zombis abatidos`;
@@ -329,9 +329,7 @@ export class Game {
     p.knock = null;
     p.enter = null;
     p.char.object.visible = true;
-    p.char.setBase('lie');
-    p.char.object.rotation.x = -Math.PI / 2;
-    p.char.object.position.y = 0.14;
+    this.collapse(p);
     this.timeScale = 0.35;
     this.canvas.style.filter = 'grayscale(0.85) contrast(1.1)';
     this.audio.sfx('wasted');
@@ -341,11 +339,16 @@ export class Game {
       // the bill: 100 € and a tenth of what you carry (the money in your safe at home is never touched)
       const bill = Math.min(p.money, 100 + Math.round(p.money * 0.1));
       p.money -= bill;
-      p.char.object.rotation.x = 0;
       this.respawn('salud');
       const home = this.save.bank || 0;
       this.hud.notify(`Factura del hospital: −${bill} €.${home ? ` En tu casa sigues teniendo ${home.toLocaleString('es-ES')} € a salvo.` : ' Guarda dinero en la caja fuerte de tu casa y no lo perderás.'}`, 'info', 5);
     }, 4200);
+  }
+  // the player's body goes down (already falling if knocked down: it just stays limp now), eyes closed
+  collapse(p) {
+    const ch = p.char;
+    if (!ch.rag) { ch.standUp(); ch.object.updateMatrixWorld(true); ch.ragdoll({ buckle: 1.1, tone: 0.15, dead: true, env: p.ragEnv(), vel: [(Math.random() - 0.5) * 0.8, 0, (Math.random() - 0.5) * 0.8], up: 0.5 }); }
+    ch.ragDead = true;
   }
   onBusted() {
     if (this.state !== 'play') return;
@@ -357,7 +360,7 @@ export class Game {
     p.mode = 'busted';
     p.knock = null;
     p.enter = null;
-    p.char.object.rotation.x = 0;
+    p.char.standUp();
     p.char.setBase('handsup');
     this.audio.sfx('busted');
     this.hud.banner('DETENIDO', 'Pasas la noche en el cuartel de la Guardia Civil', 'dead', 4);
@@ -777,7 +780,7 @@ export class Game {
     const $ = (id) => document.getElementById(id);
     $('hEnd').hidden = true;
     const p = this.player;
-    p.char.object.rotation.x = 0; p.mode = 'foot'; p.health = 100;
+    p.char.standUp(); p.char.object.rotation.x = 0; p.mode = 'foot'; p.health = 100;
     this.canvas.style.filter = ''; this.timeScale = 1;
     this.state = 'play';
     if (this.endMode === 'zombis') { const d = this.interiors.doors[0]; if (d) p.spawnAt(d.x, d.z, 0); this.setMode('zombis'); }

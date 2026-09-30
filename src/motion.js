@@ -83,3 +83,57 @@ export const FACES = {
   doubt: { lift: 0.0024, knit: 0.05, smile: -0.001, wide: -0.0008, squint: 0.04, jaw: 0 },
 };
 export const FACE_KEYS = Object.keys(FACES.neutral);
+
+// getting up off the ground, as key poses (seconds; positions in metres for a 1.78 m body, in the frame the person
+// will stand up in: +z ahead). P: the hips; the rest are joint angles (as in the walk: thigh −x forward, shin +x
+// bent, arm −x forward…); where ikL / ikR is 1 the leg reaches instead for fL / fR (the ankle), the knee pointing
+// kL / kR and the foot pitched aL / aR (0 flat on the ground, + toes down). Missing channels carry on from the key before.
+// From the back: sit up with the chin tucked, draw the feet in, hands behind; rock forward onto the feet; stand.
+export const GETUP_BACK = [
+  { t: 0, P: [0, 0.11, -0.46], hips: [-1.57, 0, 0], spine: [0, 0, 0], chest: [0, 0, 0], neck: [0, 0, 0], head: [0, 0, 0],
+    armL: [0.1, 0, 0.3], armR: [0.1, 0, -0.3], foreL: [-0.2, 0.2, 0], foreR: [-0.2, -0.2, 0], handL: [0.2, 0, 0], handR: [0.2, 0, 0],
+    thighL: [0, 0, 0.05], thighR: [0, 0, -0.05], shinL: [0.08, 0, 0], shinR: [0.08, 0, 0], footL: [0.4, 0, 0], footR: [0.4, 0, 0],
+    fL: [0.11, 0.075, -0.03], fR: [-0.11, 0.075, 0.02], kL: [0, 0.6, 1], kR: [0, 0.6, 1], aL: 0, aR: 0, ik: 0 },
+  { t: 0.4, P: [0, 0.12, -0.46], hips: [-1.3, 0, 0], spine: [0.42, 0, 0], chest: [0.3, 0, 0], neck: [0.2, 0, 0], head: [0.25, 0, 0],
+    armL: [0.6, 0, 0.35], armR: [0.6, 0, -0.35], foreL: [-1.1, 0.3, 0], foreR: [-1.1, -0.3, 0],
+    thighL: [-0.9, 0, 0.1], thighR: [-0.6, 0, -0.08], shinL: [1.6, 0, 0], shinR: [1.1, 0, 0], footL: [0.1, 0, 0], footR: [0.2, 0, 0] },
+  { t: 0.85, P: [0, 0.13, -0.42], hips: [-0.75, 0, 0], spine: [0.45, 0, 0], chest: [0.2, 0, 0], neck: [0.1, 0, 0], head: [0.1, 0, 0],
+    armL: [0.8, 0, 0.3], armR: [0.8, 0, -0.3], foreL: [-0.25, 0.2, 0], foreR: [-0.25, -0.2, 0], handL: [-0.5, 0, 0], handR: [-0.5, 0, 0], ik: 1 },
+  { t: 1.3, P: [0, 0.42, -0.16], hips: [0.3, 0, 0], spine: [0.35, 0, 0], chest: [0.15, 0, 0], neck: [-0.05, 0, 0], head: [-0.2, 0, 0],
+    armL: [-0.95, 0, 0.15], armR: [-0.95, 0, -0.15], foreL: [-0.6, 0.2, 0], foreR: [-0.6, -0.2, 0], handL: [0.1, 0, 0], handR: [0.1, 0, 0] },
+  { t: 1.8, P: [0, 0.76, -0.05], hips: [0.15, 0, 0], spine: [0.2, 0, 0], chest: [0.05, 0, 0], neck: [0, 0, 0], head: [-0.1, 0, 0],
+    armL: [-0.35, 0, 0.12], armR: [-0.35, 0, -0.12], foreL: [-0.45, 0.25, 0], foreR: [-0.45, -0.25, 0] },
+  { t: 2.25, P: [0, 0.97, 0], hips: [0, 0, 0], spine: [0, 0, 0], chest: [0, 0, 0], neck: [0, 0, 0], head: [0, 0, 0],
+    armL: [-0.05, 0.06, 0.08], armR: [-0.05, -0.06, -0.08], foreL: [-0.3, 0.3, 0], foreR: [-0.3, -0.3, 0], handL: [0.1, 0, 0], handR: [0.1, 0, 0] },
+];
+// From the front: push up on the arms, knees in under the hips (on all fours), one foot forward, stand up over it and
+// bring the back foot up beside it
+export const GETUP_FRONT = [
+  { t: 0, P: [0, 0.12, -0.5], hips: [1.57, 0, 0], spine: [0, 0, 0], chest: [0, 0, 0], neck: [0, 0, 0], head: [0, 0, 0],
+    armL: [-0.3, 0, 0.35], armR: [-0.3, 0, -0.35], foreL: [-0.4, 0.3, 0], foreR: [-0.4, -0.3, 0], handL: [0, 0, 0], handR: [0, 0, 0],
+    thighL: [0, 0, 0.05], thighR: [0, 0, -0.05], shinL: [0.05, 0, 0], shinR: [0.05, 0, 0], footL: [0.9, 0, 0], footR: [0.9, 0, 0],
+    fL: [0.11, 0.13, -0.94], fR: [-0.11, 0.13, -0.94], kL: [0, -1, 0.35], kR: [0, -1, 0.35], aL: 1.2, aR: 1.2, ik: 0 },
+  { t: 0.45, P: [0, 0.2, -0.5], hips: [1.35, 0, 0], spine: [-0.3, 0, 0], chest: [-0.15, 0, 0], neck: [-0.2, 0, 0], head: [-0.3, 0, 0],
+    armL: [-1.35, 0, 0.3], armR: [-1.35, 0, -0.3], foreL: [-1.0, 0.3, 0], foreR: [-1.0, -0.3, 0], handL: [-0.8, 0, 0], handR: [-0.8, 0, 0],
+    thighL: [-0.3, 0, 0.05], thighR: [-0.3, 0, -0.05], shinL: [0.6, 0, 0], shinR: [0.6, 0, 0], footL: [0.8, 0, 0], footR: [0.8, 0, 0] },
+  { t: 0.95, P: [0, 0.52, -0.52], hips: [1.4, 0, 0], spine: [0.1, 0, 0], chest: [0.05, 0, 0], neck: [-0.35, 0, 0], head: [-0.3, 0, 0],
+    armL: [-1.45, 0, 0.12], armR: [-1.45, 0, -0.12], foreL: [-0.12, 0.3, 0], foreR: [-0.12, -0.3, 0], handL: [-1.2, 0, 0], handR: [-1.2, 0, 0], ik: 1 },
+  { t: 1.45, P: [0, 0.55, -0.3], hips: [0.55, 0, 0], spine: [0.3, 0, 0], chest: [0.1, 0, 0], neck: [-0.1, 0, 0], head: [-0.15, 0, 0],
+    armL: [-0.7, 0, 0.2], armR: [-1.0, 0, -0.1], foreL: [-0.5, 0.3, 0], foreR: [-0.9, -0.3, 0], handL: [-0.3, 0, 0], handR: [0.2, 0, 0],
+    fL: [0.11, 0.13, -0.72], kL: [0, -1, 0.3], aL: 1.2, fR: [-0.12, 0.075, 0.08], kR: [0, 0.4, 1], aR: 0 },
+  { t: 1.95, P: [0, 0.84, -0.06], hips: [0.2, 0, 0], spine: [0.15, 0, 0], chest: [0.05, 0, 0], neck: [0, 0, 0], head: [-0.05, 0, 0],
+    armL: [-0.3, 0, 0.12], armR: [-0.4, 0, -0.12], foreL: [-0.45, 0.25, 0], foreR: [-0.5, -0.25, 0], handL: [0.1, 0, 0], handR: [0.1, 0, 0],
+    fL: [0.11, 0.24, -0.2], kL: [0, 0, 1], aL: 0.4 },
+  { t: 2.35, P: [0, 0.97, 0.03], hips: [0, 0, 0], spine: [0, 0, 0], chest: [0, 0, 0], neck: [0, 0, 0], head: [0, 0, 0],
+    armL: [-0.05, 0.06, 0.08], armR: [-0.05, -0.06, -0.08], foreL: [-0.3, 0.3, 0], foreR: [-0.3, -0.3, 0],
+    fL: [0.1, 0.075, 0.0], aL: 0 },
+];
+// fill each key's missing channels from the key before (ik → ikL and ikR)
+for (const K of [GETUP_BACK, GETUP_FRONT]) {
+  let prev = {};
+  for (const k of K) {
+    if (k.ik !== undefined) { if (k.ikL === undefined) k.ikL = k.ik; if (k.ikR === undefined) k.ikR = k.ik; delete k.ik; }
+    for (const c in prev) if (k[c] === undefined) k[c] = prev[c];
+    prev = k;
+  }
+}

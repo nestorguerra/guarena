@@ -97,14 +97,14 @@ export class Peds {
         if (d > 90 || (ped.deadT > 45 && !this.game.traffic.inView(ped.x, ped.z, d))) { this.despawn(ped, i); continue; }
       } else if (d > (ped.fixed ? 110 : 150) && ped.state !== 'lie' || (ped.state === 'lie' && d > 200)) { this.despawn(ped, i); continue; }
       this.updatePed(ped, dt, d);
+      this.glance(ped, dt, d);
       // animation LOD: far peds update less often
       const cd = Math.hypot(ped.x - cam.x, ped.z - cam.z);
       ped.char.object.visible = cd < 130;
       ped.animAcc += dt;
       if (cd < 45 || ped.animAcc > 0.1) { ped.char.update(ped.animAcc, ped.speed, { turn: ped.turn || 0 }); ped.animAcc = 0; }
       const o = ped.char.object;
-      o.position.set(ped.x, ped.y, ped.z);
-      if (ped.state !== 'lie' && ped.state !== 'fly') o.rotation.set(0, ped.heading, 0);
+      if (!ped.char.rag) { o.position.set(ped.x, ped.y, ped.z); o.rotation.set(0, ped.heading, 0); } // (a ragdoll places itself)
       if (ped.group && ped.state === 'idle') ped.speed = 0;
     }
     this.dogs.update(dt);
@@ -399,30 +399,28 @@ export class Peds {
         break;
       }
       case 'fly': {
-        ped.vy -= 13 * dt;
-        // swept move so a hard hit never throws anybody through a wall
-        const nx = ped.x + ped.vx * dt, nz = ped.z + ped.vz * dt;
-        const tt = g.map.collider.raycast(ped.x, ped.z, nx, nz, 0.9, 0.9);
-        if (tt < 1) { const f = Math.max(0, tt - 0.05); ped.x += (nx - ped.x) * f; ped.z += (nz - ped.z) * f; ped.vx *= -0.2; ped.vz *= -0.2; }
-        else { ped.x = nx; ped.z = nz; }
-        ped.y += ped.vy * dt;
-        ped.vx *= Math.exp(-0.6 * dt); ped.vz *= Math.exp(-0.6 * dt);
-        const o = ped.char.object;
-        o.rotation.x = Math.max(-Math.PI / 2, o.rotation.x - dt * 6);
-        o.rotation.y += ped.spin * dt;
-        if (ped.y <= 0 && ped.t > 0.15) {
-          ped.y = 0.14; ped.state = ped.hp <= 0 ? 'dead' : 'lie'; ped.lieT = ped.koLong ? 25 + Math.random() * 15 : 4 + Math.random() * 5; g.audio.sfx('land', { x: ped.x, z: ped.z, vol: ped.koLong ? 0.4 : 1 });
+        // the ragdoll has the body (thrown, falling, against the walls): follow its hips; down once it lies still
+        this.followBody(ped);
+        const rag = ped.char.rag;
+        if (rag && rag.landed && !ped.thud) { ped.thud = true; g.audio.sfx('land', { x: ped.x, z: ped.z, vol: ped.koLong ? 0.4 : 1 }); }
+        if (!rag || rag.sleeping || ped.t > 3.5) {
+          ped.state = ped.hp <= 0 ? 'dead' : 'lie'; ped.lieT = ped.koLong ? 25 + Math.random() * 15 : 3 + Math.random() * 4;
           if (ped.state === 'dead') this.onDied(ped);
         }
-        const pos = { x: ped.x, z: ped.z };
-        g.map.collider.resolveCircle(pos, 0.3);
-        ped.x = pos.x; ped.z = pos.z;
-        ped.speed = 0;
         break;
       }
       case 'dead':
         ped.speed = 0; ped.deadT = (ped.deadT || 0) + dt;
-        ped.char.object.rotation.x = -Math.PI / 2;
+        this.followBody(ped);
+        break;
+      case 'getup':
+        // back on their feet (see Character.getUp), then off, shaken
+        ped.speed = 0;
+        if (!ped.char.gettingUp) {
+          ped.state = 'flee'; ped.fear = 1;
+          if (ped.koLong) { ped.koLong = false; ped.fear = 0.4; this.say(ped, pick(['¿Qué… qué ha pasao?', 'Ay, mi cabeza…', '¿Quién ha sido?'])); }
+          else this.say(ped, pick(FRASES.punched));
+        }
         break;
       case 'handsup': {
         // surrendering: faces the threat with the hands up until it goes away
@@ -461,14 +459,14 @@ export class Peds {
       }
       case 'lie': {
         ped.speed = 0;
-        ped.char.object.rotation.x = -Math.PI / 2;
+        this.followBody(ped);
         if (ped.hp <= 0) { ped.state = 'dead'; this.onDied(ped); break; }
         ped.lieT -= dt;
         if (ped.lieT <= 0 && ped.hp > 0) {
-          ped.y = 0; ped.char.object.rotation.x = 0; ped.heading = ped.char.object.rotation.y;
-          ped.char.setBase(null); ped.state = 'flee'; ped.fear = 1;
-          if (ped.koLong) { ped.koLong = false; ped.fear = 0.4; this.say(ped, pick(['¿Qué… qué ha pasao?', 'Ay, mi cabeza…', '¿Quién ha sido?'])); }
-          else this.say(ped, pick(FRASES.punched));
+          // up again: from the back or the front, however they fell
+          const up = ped.char.getUp();
+          if (up) { ped.x = up.x; ped.z = up.z; ped.heading = up.heading; }
+          ped.y = 0; ped.state = 'getup';
         }
         break;
       }
@@ -598,11 +596,14 @@ export class Peds {
     if (ped.state === 'fly' || ped.state === 'lie') return;
     if (ped.call) this.endCall(ped, false);
     ped.pendingCall = null;
-    ped.state = 'fly'; ped.t = 0;
+    ped.state = 'fly'; ped.t = 0; ped.thud = false;
     const sp = Math.hypot(vx, vz);
-    ped.vx = vx; ped.vz = vz; ped.vy = 2.5 + sp * 0.22; ped.spin = (Math.random() - 0.5) * 10;
     ped.hp -= sp * 6;
-    ped.char.setBase('lie');
+    // a car sweeps the legs out and throws the body up over it; a blow sends the top half back (killed: the knees go
+    // and there is no fight left in it)
+    const dead = ped.hp <= 0;
+    if (byVehicle) this.fall(ped, { vel: [vx * 0.9, 1.6 + sp * 0.13, vz * 0.9], legs: 0.5, up: -0.2, tone: dead ? 0.15 : 0.55 });
+    else this.fall(ped, { vel: [vx * 0.8, dead ? 0.2 : 0.7, vz * 0.8], up: 0.8, legs: -0.3, tone: dead ? 0.1 : 0.75, buckle: dead ? 0.9 : 0 });
     if (ped.bench) { ped.bench.used = false; ped.bench = null; ped.fixed = false; }
     this.game.audio.sfx(ped.char.desc.gender === 'f' ? 'yelp_f' : 'yelp_m', { x: ped.x, z: ped.z });
     this.game.audio.sfx('punch_hit', { x: ped.x, z: ped.z, vol: 1.2 });
@@ -610,6 +611,39 @@ export class Peds {
     if (byVehicle && byVehicle.driver === 'player') this.game.police.crime('atropello', ped.x, ped.z, { victim: ped });
   }
 
+  // people notice you: walking past or standing about, someone you come close to (in front of them) looks at you for
+  // a moment — the eyes first, then the head, the chest on a big turn (Character.lookAt) — longer if you run at them
+  glance(ped, dt, d) {
+    const free = (ped.state === 'walk' || ped.state === 'idle') && !ped.group && !ped.bench && !ped.call;
+    if (!free) { if (ped.lookT > 0) { ped.lookT = 0; ped.char.lookAt(null); } return; }
+    const pl = this.game.player;
+    if (ped.lookT > 0) {
+      ped.lookT -= dt;
+      if (ped.lookT <= 0 || d > 10 || pl.vehicle) { ped.lookT = 0; ped.char.lookAt(null); ped.lookCd = 5 + Math.random() * 10; }
+      else ped.char.lookAt((this._lp || (this._lp = new THREE.Vector3())).set(pl.pos.x, pl.pos.y + 1.55 * (pl.char.scale || 1), pl.pos.z));
+      return;
+    }
+    ped.lookCd = (ped.lookCd ?? Math.random() * 4) - dt;
+    if (ped.lookCd > 0 || d > 6.5 || pl.vehicle || pl.mode !== 'foot') return;
+    const dx = pl.pos.x - ped.x, dz = pl.pos.z - ped.z;
+    const ang = Math.abs(wrapAngle(Math.atan2(dx, dz) - ped.heading));
+    if (ang > 1.9) return; // (behind them: they don't see you)
+    const fast = Math.hypot(pl.vel.x, pl.vel.z) > 4;
+    if (Math.random() < (fast ? 0.95 : 0.7)) ped.lookT = (fast ? 2 : 1.1) + Math.random() * 2.2;
+    else ped.lookCd = 2 + Math.random() * 4;
+  }
+  // the body goes limp and falls (a ragdoll: see Character.ragdoll); o: vel, legs, up, buckle, tone, dead
+  fall(ped, o) {
+    const col = this.map.collider;
+    this.ragEnv = this.ragEnv || { floor: () => 0, collide: (p, r) => col.resolveCircle(p, r), crosses: (ax, az, bx, bz) => col.crosses && col.crosses(ax, az, bx, bz) };
+    ped.char.ragdoll({ env: this.ragEnv, dead: ped.hp <= 0, ...o });
+  }
+  followBody(ped) {
+    ped.speed = 0;
+    if (!ped.char.rag) return;
+    const p = ped.char.ragPos(this._rp || (this._rp = new THREE.Vector3()));
+    ped.x = p.x; ped.z = p.z; ped.y = 0;
+  }
   hitTest(x, z, r, exclude) {
     let best = null, bd = r;
     for (const ped of this.list) {
@@ -623,6 +657,7 @@ export class Peds {
 
   // any kind of harm: fists, bat, bullets. kind: 'fist' | 'bat' | 'bullet'
   damage(ped, dmg, kx, kz, source = 'player', kind = 'fist') {
+    if (ped.char.rag) ped.char.rag.push(9, kx * 0.35, 0.3, kz * 0.35); // a body on the ground jerks with the blow
     if (ped.state === 'dead') return false;
     const g = this.game;
     if (ped.call) this.endCall(ped, false);
@@ -651,7 +686,8 @@ export class Peds {
   }
   onDied(ped) {
     const g = this.game;
-    ped.char.setBase('lie');
+    if (!ped.char.rag) this.fall(ped, { buckle: 1, tone: 0.1, dead: true }); // (it came where they stood)
+    ped.char.ragDead = true;
     ped.char.blinkP = 1;
     g.effects.pool(ped.x, ped.z, 0.75);
     if (ped.cash > 0 && g.pickups) { g.pickups.cash(ped.x + (Math.random() - 0.5), ped.z + (Math.random() - 0.5), ped.cash); ped.cash = 0; }
@@ -751,9 +787,9 @@ export class Peds {
     pl.heading = Math.atan2(ped.x - pl.pos.x, ped.z - pl.pos.z);
     pl.char.play('punch', 0.45);
     const fx = Math.sin(pl.heading), fz = Math.cos(pl.heading);
-    ped.state = 'fly'; ped.t = 0; ped.vx = fx * 0.9; ped.vz = fz * 0.9; ped.vy = 1.4; ped.spin = 0; ped.koLong = true;
+    ped.state = 'fly'; ped.t = 0; ped.thud = false; ped.koLong = true;
     ped.hp = Math.min(ped.hp, 70);
-    ped.char.setBase('lie');
+    this.fall(ped, { vel: [fx * 1.1, 0, fz * 1.1], up: 0.6, buckle: 1.4, tone: 0.1 }); // out cold: the knees go
     g.audio.sfx('punch_hit', { x: ped.x, z: ped.z, vol: 0.35 });
     g.police.crime('agresion', ped.x, ped.z, { victim: ped, silent: true });
   }
@@ -824,9 +860,9 @@ export class Peds {
     const ok = (sx, sz) => !this.map.buildingAt(v.x + sx * (v.hw + 0.7), v.z + sz * (v.hw + 0.7)) && this.map.collider.raycast(v.x, v.z, v.x + sx * (v.hw + 0.9), v.z + sz * (v.hw + 0.9), 1, 1) > 0.98;
     if (!ok(lx, lz)) { if (ok(-lx, -lz)) { lx = -lx; lz = -lz; } else { lx = -fx; lz = -fz; } }
     const ped = this.spawnAt(v.x + lx * (v.hw + 0.7), v.z + lz * (v.hw + 0.7));
-    ped.state = 'fly'; ped.t = 0; ped.vx = lx * 3; ped.vz = lz * 3; ped.vy = 2; ped.spin = 1.5;
-    ped.char.setBase('lie');
+    ped.state = 'fly'; ped.t = 0; ped.thud = false;
     ped.hp = 100;
+    this.fall(ped, { vel: [lx * 3, 1.6, lz * 3], up: 0.4, tone: 0.7 }); // dragged out and thrown down
     setTimeout(() => this.say(ped, pick(FRASES.carjack)), 900);
     return ped;
   }

@@ -1299,7 +1299,7 @@ export class HouseLife {
   // ---- perception
   sees(p, range = 9) {
     const g = this.g, pl = g.player;
-    if (pl.hidden || p.state === 'sleep' || p.state === 'ko' || p.state === 'dead') return false;
+    if (pl.hidden || p.state === 'sleep' || p.state === 'ko' || p.state === 'dead' || p.state === 'getup') return false;
     if (Math.abs(pl.pos.y - p.y) > 1.6) return false;
     const dx = pl.pos.x - p.x, dz = pl.pos.z - p.z, d = Math.hypot(dx, dz);
     const R = range * (pl.crouch ? 0.55 : 1);
@@ -1324,7 +1324,7 @@ export class HouseLife {
   // ---- reactions
   alert(p, at) {
     if (p.state === 'sleep') { this.wake(p); }
-    if (['alarm', 'flee', 'call', 'cower', 'ko', 'dead', 'fight'].includes(p.state)) return;
+    if (['alarm', 'flee', 'call', 'cower', 'ko', 'dead', 'fight', 'getup'].includes(p.state)) return;
     if (p.state === 'host' && this.mode === 'visit') return;
     p.state = 'search'; p.char.setBase(null);
     p.goal = { x: at.x, z: at.z, y: p.y }; p.path = null; p.waitT = 0; p.searchT = 0;
@@ -1339,7 +1339,7 @@ export class HouseLife {
   }
   // they have seen the intruder (or the visitor stealing)
   alarm(p, caught = false) {
-    if (['alarm', 'flee', 'call', 'cower', 'ko', 'dead', 'fight'].includes(p.state)) return;
+    if (['alarm', 'flee', 'call', 'cower', 'ko', 'dead', 'fight', 'getup'].includes(p.state)) return;
     if (p.state === 'sleep') this.wake(p);
     p.char.setBase(null);
     this.say(p, pickR(caught ? SAY_RES.caught : SAY_RES.thief));
@@ -1411,19 +1411,28 @@ export class HouseLife {
     if (p.kind === 'cop') { g.police.crime(p.hp <= 0 ? 'policia_muerto' : 'policia', this.door.x, this.door.z); }
     if (p.call) { }
     if (g.police.calls.has(p)) this.endCall(p, false);
+    if (p.char.rag) p.char.rag.push(9, kx * 0.35, 0.3, kz * 0.35); // a body on the floor jerks with the blow
     if (p.hp <= 0) {
-      p.state = 'dead'; p.char.setBase('lie'); p.char.object.rotation.order = 'YXZ';
+      if (p.state === 'sleep') { p.state = 'dead'; p.char.setBase('lie'); p.char.object.rotation.order = 'YXZ'; }
+      else { p.state = 'dead'; this.fall(p, { vel: [kx * 0.8, 0.2, kz * 0.8], up: 0.6, buckle: 0.9, tone: 0.1, dead: true }); }
       g.effects.pool(p.x, p.z, 0.8);
       if (p.kind === 'res') this.onCrime('homicidio', { victim: p });
       return;
     }
-    if (kind === 'bullet' || p.hp < 45 || Math.random() < (kind === 'bat' ? 0.6 : 0.3)) { this.knockOut(p, 30 + Math.random() * 20); }
+    if (kind === 'bullet' || p.hp < 45 || Math.random() < (kind === 'bat' ? 0.6 : 0.3)) { this.knockOut(p, 30 + Math.random() * 20, kx, kz); }
     else if (p.kind === 'res') this.alarm(p);
     if (p.kind === 'res') this.onCrime('agresion', { victim: p });
   }
-  knockOut(p, t = 40) {
+  knockOut(p, t = 40, kx = 0, kz = 0) {
     if (this.g.police.calls.has(p)) this.endCall(p, false);
-    p.state = 'ko'; p.koT = t; p.char.setBase('lie');
+    p.state = 'ko'; p.koT = t;
+    if (!p.char.rag) this.fall(p, { vel: [kx * 0.6, 0.3, kz * 0.6], up: 0.6, buckle: 1.3, tone: 0.1 }); // out cold: the knees go
+  }
+  // the body goes limp onto this storey's floor, against its walls (a ragdoll: see Character.ragdoll)
+  fall(p, opts) {
+    const col = this.colOf(p), h = this.h;
+    p.char.object.rotation.order = 'XYZ';
+    p.char.ragdoll({ env: { floor: (x, z, y) => (h.floorY ? h.floorY(x, z, y) : 0), collide: (pp, r) => col.resolveCircle(pp, r), crosses: (ax, az, bx, bz) => col.crosses && col.crosses(ax, az, bx, bz) }, dead: p.hp <= 0, ...opts });
   }
   canTakedown(p) {
     const pl = this.g.player;
@@ -1440,7 +1449,7 @@ export class HouseLife {
     this.g.audio.sfx('punch_hit', { vol: 0.35 });
     if (p.state === 'sleep') { p.koT = 60; p.state = 'ko'; return; } // stays asleep for good
     if (p.state === 'sit' || p.state === 'host') p.char.setBase(null);
-    this.knockOut(p, 55 + Math.random() * 20);
+    this.knockOut(p, 55 + Math.random() * 20, Math.sin(pl.heading) * 1.5, Math.cos(pl.heading) * 1.5);
   }
 
   // ---- the police come in (3+ stars and they saw you go in)
@@ -1524,7 +1533,13 @@ export class HouseLife {
         }
         case 'ko':
           p.koT -= dt;
-          if (p.koT <= 0) { p.char.setBase(null); p.state = 'idle'; this.say(p, '¿Qué… qué ha pasao?'); this.alarm(p); }
+          if (p.koT <= 0) {
+            if (p.char.rag) { const up = p.char.getUp(); if (up) { p.x = up.x; p.z = up.z; p.heading = up.heading; } p.state = 'getup'; }
+            else { p.char.setBase(null); p.state = 'idle'; this.say(p, '¿Qué… qué ha pasao?'); this.alarm(p); }
+          }
+          break;
+        case 'getup':
+          if (!p.char.gettingUp) { p.state = 'idle'; this.say(p, '¿Qué… qué ha pasao?'); this.alarm(p); }
           break;
         case 'dead': break;
         // the police, room by room
@@ -1536,7 +1551,8 @@ export class HouseLife {
       const o = p.char.object;
       const lying = p.state === 'sleep' || p.state === 'ko' || p.state === 'dead';
       p.char.update(dt, speed, { lookYaw: lying ? undefined : p.look });
-      if (lying) {
+      if (p.char.rag) { const rp = p.char.ragPos(this._rp || (this._rp = new THREE.Vector3())); p.x = rp.x; p.z = rp.z; p.y = p.char.rag.floorY; } // (it places the body itself)
+      else if (lying) {
         o.rotation.order = 'YXZ';
         o.rotation.set(-Math.PI / 2, p.heading, 0);
         o.position.set(p.x, p.state === 'sleep' ? p.y : p.y + 0.14, p.z);
@@ -1589,7 +1605,7 @@ export class HouseLife {
   // a Guardia Civil in the house: search the rooms, check the wardrobes, chase and arrest when they see you
   copStep(p, dt, d) {
     const g = this.g, pl = g.player, nav = this.h.nav;
-    if (p.state === 'ko' || p.state === 'dead') return 0;
+    if (p.state === 'ko' || p.state === 'dead' || p.state === 'getup') return 0;
     if (g.police.wanted === 0) { p.state = 'leave'; }
     if (p.state === 'leave') { const s = this.walkTo(p, nav.nodes[nav.entrance], 2, dt); return s; }
     if (p.seeT <= 0) {

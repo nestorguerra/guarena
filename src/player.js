@@ -37,6 +37,7 @@ export class Player {
     this.heading = heading;
     this.char.object.visible = true;
     this.char.setBase(null);
+    this.char.standUp();
     this.char.object.rotation.set(0, heading, 0);
     this.mode = 'foot';
     this.vehicle = null;
@@ -144,9 +145,16 @@ export class Player {
   }
 
   syncChar() {
-    const o = this.char.object;
+    const ch = this.char, o = ch.object;
+    // a ragdoll places the body itself: the player is wherever its hips are
+    if (ch.rag) { ch.ragPos(this.pos); this.pos.y = ch.rag.floorY; return; }
     o.position.copy(this.pos);
-    if (!this.knock) o.rotation.set(0, this.heading, 0);
+    o.rotation.set(0, this.heading, 0);
+  }
+  // the floor and the walls a falling body meets (indoors too)
+  ragEnv() {
+    const g = this.game;
+    return this._re || (this._re = { floor: (x, z, y) => (g.interior && g.interior.floorY ? g.interior.floorY(x, z, y) : 0), collide: (p, r) => g.map.collider.resolveCircle(p, r), crosses: (ax, az, bx, bz) => g.map.collider.crosses && g.map.collider.crosses(ax, az, bx, bz) });
   }
 
   collide() {
@@ -197,42 +205,31 @@ export class Player {
 
   knockDown(vx, vz, dmg) {
     if (this.mode === 'entering') { this.mode = 'foot'; this.enter = null; }
-    this.knock = { t: 0, vx, vz, vy: 3.5 + Math.hypot(vx, vz) * 0.15, spin: (Math.random() - 0.5) * 8, lying: false };
+    const sp = Math.hypot(vx, vz);
+    this.knock = { t: 0, down: 0, thud: false };
     this.damage(dmg);
-    this.char.setBase('lie');
+    // limp and thrown (a ragdoll): a car sweeps the legs out, anything else knocks the top half back
+    this.char.object.updateMatrixWorld(true);
+    this.char.ragdoll(sp > 5 ? { vel: [vx * 0.9, 1.8 + sp * 0.12, vz * 0.9], legs: 0.5, up: -0.2, tone: 0.6, env: this.ragEnv(), dead: this.health <= 0 }
+      : { vel: [vx, 1.0, vz], up: 0.7, legs: -0.3, tone: 0.8, env: this.ragEnv(), dead: this.health <= 0 });
     this.game.audio.sfx(this.char.desc.gender === 'f' ? 'yelp_f' : 'yelp_m');
     this.game.cam.shake(0.5);
   }
   updateKnock(dt) {
-    const k = this.knock;
+    const k = this.knock, ch = this.char;
     k.t += dt;
-    const o = this.char.object;
-    if (!k.lying) {
-      k.vy -= 13 * dt;
-      const nx = this.pos.x + k.vx * dt, nz = this.pos.z + k.vz * dt;
-      const tt = this.game.map.collider.raycast(this.pos.x, this.pos.z, nx, nz, 0.9, 0.9);
-      if (tt < 1) { const f = Math.max(0, tt - 0.05); this.pos.x += (nx - this.pos.x) * f; this.pos.z += (nz - this.pos.z) * f; k.vx *= -0.25; k.vz *= -0.25; }
-      else { this.pos.x = nx; this.pos.z = nz; }
-      this.pos.y += k.vy * dt;
-      k.vx *= Math.exp(-0.8 * dt); k.vz *= Math.exp(-0.8 * dt);
-      this.game.map.collider.resolveCircle(this.pos, 0.3);
-      o.rotation.x = Math.max(-Math.PI / 2, o.rotation.x - dt * 5);
-      o.rotation.y += k.spin * dt;
-      if (this.pos.y <= 0 && k.t > 0.15) { this.pos.y = 0; k.lying = true; k.lieT = 0; this.game.audio.sfx('land'); }
-    } else {
-      k.lieT += dt;
-      o.rotation.x = -Math.PI / 2;
-      this.pos.y = 0.14;
-      if (k.lieT > 1.8 && this.mode === 'foot' && this.health > 0) {
-        this.knock = null;
-        this.pos.y = 0;
-        o.rotation.x = 0;
-        this.heading = o.rotation.y;
-        this.char.setBase(null);
+    ch.update(dt, 0, {});
+    if (ch.rag) {
+      const rag = ch.rag;
+      if (rag.landed && !k.thud) { k.thud = true; this.game.audio.sfx('land'); }
+      // lying still a moment (or a few seconds on), and up again, from the back or the front
+      if (rag.sleeping || k.t > 2.2) k.down += dt;
+      if (k.down > 0.5 && this.mode === 'foot' && this.health > 0) {
+        const up = ch.getUp();
+        if (up) { this.pos.set(up.x, rag.floorY, up.z); this.heading = up.heading; }
       }
-    }
-    o.position.copy(this.pos);
-    this.char.update(dt, 0, {});
+    } else if (!ch.gettingUp) this.knock = null;
+    this.syncChar();
   }
 
   damage(d) {

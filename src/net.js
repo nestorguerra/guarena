@@ -301,7 +301,7 @@ export class Net {
     const st = {
       t: 'st', ts: r3(performance.now() / 1000), x: r2(p.pos.x), y: r2(p.pos.y), z: r2(p.pos.z), h: r3(p.heading), s: r2(Math.hypot(p.vel.x, p.vel.z)),
       g: p.grounded ? 1 : 0, vy: r2(p.vel.y), tr: r2(p.turnRate || 0), md: r2(p.moveDir || 0),
-      m: p.mode === 'car' ? 'c' : p.mode === 'passenger' ? 'p' : p.mode === 'dead' ? 'd' : p.mode === 'busted' ? 'b' : p.knock ? 'k' : p.mode === 'sit' ? 's' : p.mode === 'hidden' ? 'h' : 'f',
+      m: p.mode === 'car' ? 'c' : p.mode === 'passenger' ? 'p' : p.mode === 'dead' ? 'd' : p.mode === 'busted' ? 'b' : p.knock ? (p.char.gettingUp ? 'u' : 'k') : p.mode === 'sit' ? 's' : p.mode === 'hidden' ? 'h' : 'f',
       cr: p.crouch ? 1 : 0,
       w: W ? W.cur : 'punos', a: W && W.aiming ? 1 : 0, pi: r2(g.cam.pitch || 0), in: cur ? cur.seed || 1 : 0,
     };
@@ -520,19 +520,33 @@ class Remote {
       ch.update(dt, 0, { fidget: false });
     } else if (ch.object.rotation.order === 'YXZ') { ch.object.rotation.order = 'XYZ'; ch.object.rotation.set(0, 0, 0); }
     ch.object.visible = bike || (here && !inCar && s.m !== 'h');
-    if (ch.object.visible && !bike) {
-      ch.object.position.set(x, y, z);
-      const pose = s.m === 'd' || s.m === 'k' ? 'lie' : s.m === 'b' ? 'handsup' : s.m === 's' ? 'sitTalk' : null;
-      if (pose !== this.pose) {
-        this.pose = pose; ch.setBase(pose);
-        ch.object.rotation.x = pose === 'lie' ? -Math.PI / 2 : 0;
+    // knocked down or dead: their body falls here too (a ragdoll of our own, thrown the way they were going), and
+    // gets up when they do
+    if (ch.object.visible && !bike && (s.m === 'd' || s.m === 'k' || (s.m === 'u' && ch.rag))) {
+      if (!ch.rag && !this.ragged && s.m !== 'u') {
+        this.ragged = true; this.pose = null; ch.setBase(null);
+        ch.object.rotation.order = 'XYZ'; ch.object.position.set(x, y, z); ch.object.rotation.set(0, h, 0); ch.object.updateMatrixWorld(true);
+        const col = g.map.collider, v = this.lastV || [0, 0];
+        ch.ragdoll({ vel: [v[0], 1.2, v[1]], up: 0.5, tone: 0.6, dead: s.m === 'd', env: { floor: () => y, collide: (pp, r) => col.resolveCircle(pp, r) } });
       }
-      if (pose === 'lie') ch.object.position.y = y + 0.14;
+      if (ch.rag && s.m === 'u') ch.getUp();
+      if (ch.rag) { ch.ragDead = s.m === 'd'; ch.update(dt, 0, {}); }
+    }
+    if (ch.object.visible && !bike && !ch.rag) {
+      if (s.m !== 'd' && s.m !== 'k') this.ragged = false;
+      if (ch.gettingUp) { ch.object.position.set(ch.object.position.x, y, ch.object.position.z); ch.update(dt, 0, {}); }
+      else {
+      ch.object.position.set(x, y, z);
+      const pose = s.m === 'b' ? 'handsup' : s.m === 's' ? 'sitTalk' : null;
+      if (pose !== this.pose) { this.pose = pose; ch.setBase(pose); ch.object.rotation.x = 0; }
       ch.object.rotation.y = h;
       if (s.w !== this.gunId) this.setGun(s.w);
       ch.update(dt, pose ? 0 : sp, { grounded: !!s.g, vy: s.vy, turn: s.tr, fidget: s.w === 'punos' && !s.a && !s.cr, crouch: !!s.cr, moveDir: s.md || 0 });
       if (this.gun && !this.gunMelee) this.rig.update(dt, ch, this.gun, !!s.a || now - this.lastShot < 1, s.pi || 0, {});
+      }
     }
+    // (how fast they were going, for a fall)
+    if (b && b.ts > a.ts) { const it = 1 / (b.ts - a.ts); this.lastV = [(b.x - a.x) * it, (b.z - a.z) * it]; }
     // --- name tag over the head (or over the car), bigger with distance so it stays readable
     const cam = g.camera.position;
     let tx = x, ty = y + 2.05 * ch.scale, tz = z;
