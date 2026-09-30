@@ -361,8 +361,8 @@ export function charBuilderMain() {
   // ---------------------------------------------------------------- regions (colour slots) & shading classes
   const REG = { skin: 0, top: 1, topTrim: 2, bottom: 3, bottomTrim: 4, belt: 5, metal: 6, shoe: 7, sole: 8, lace: 9, shoeAccent: 10,
     hair: 11, hairTie: 12, eyeWhite: 13, iris: 14, pupil: 15, lash: 16, cap: 17, capBrim: 18, lens: 19, frame: 20, bag: 21, bagTrim: 22,
-    cane: 23, under: 24, mouth: 25, face: 26, beard: 27, sock: 28, lid: 29, button: 30, nail: 31 };
-  const MAT = { skin: 0, faceM: 1, faceF: 2, cotton: 3, knit: 4, denim: 5, twill: 6, leather: 7, rubber: 8, canvas: 9, hair: 10, eye: 11, gloss: 12, metal: 13, nylon: 14, lid: 15 };
+    cane: 23, under: 24, mouth: 25, face: 26, beard: 27, sock: 28, lid: 29, button: 30, nail: 31, lashF: 32 };
+  const MAT = { skin: 0, faceM: 1, faceF: 2, cotton: 3, knit: 4, denim: 5, twill: 6, leather: 7, rubber: 8, canvas: 9, hair: 10, eye: 11, gloss: 12, metal: 13, nylon: 14, lid: 15, lash: 16 };
 
   // ---------------------------------------------------------------- skeleton (rest offsets for a 1.78 m reference, arms hanging down)
   // 41 bones: the collarbones carry the arms (shrugs, reaching), the fingers bend at two joints and the thumb at two,
@@ -623,11 +623,11 @@ export function charBuilderMain() {
     const nb = A.nb, z0 = 0.096, P = 0.022 * nb, tu = A.tipUp;
     Cn([0, 0.08, 0.0928], [0, 0.051 + tu * 0.5, z0 + P - 0.0075 * nb], 0.0046 * nb, 0.0066 * nb, 0.008);
     Sp([0, 0.0455 + tu, z0 + P - 0.0074 * nb], 0.0068 * nb, 0.005);
-    for (const s of [-1, 1]) Sp([s * 0.0029 * nb, 0.0447 + tu, z0 + P - 0.0062 * nb], 0.0054 * nb, 0.0035);
+    for (const s of [-1, 1]) Sp([s * 0.0029 * nb, 0.0447 + tu, z0 + P - 0.0064 * nb], 0.0051 * nb, 0.0052);
     E([0, 0.0372 + tu * 0.6, z0 + P - 0.0122 * nb], [0.0034 * nb, 0.0036 * nb, 0.0072 * nb], 0.004, 'head', REG.face, rotX(f ? 0.55 : 0.45));
     E([0, 0.0355, 0.0975], [0.0098 * nb, 0.0048, 0.0072], 0.006);
-    for (const s of [-1, 1]) E([s * 0.0118 * nb, 0.0372, z0 + 0.0032], [0.0044 * nb, 0.0056 * nb, 0.0094 * nb], 0.0055, 'head', REG.face, rotY(s * 0.42));
-    for (const s of [-1, 1]) XE([s * 0.0054 * nb, 0.0326 + tu * 0.4, z0 + 0.0082 * nb], [0.0022 * nb, 0.0014 * nb, 0.0045 * nb], 0.0015, rotY(s * 0.3));
+    for (const s of [-1, 1]) E([s * 0.0114 * nb, 0.0372, z0 + 0.003], [0.0041 * nb, 0.0052 * nb, 0.0088 * nb], 0.0078, 'head', REG.face, rotY(s * 0.42));
+    for (const s of [-1, 1]) XE([s * 0.0052 * nb, 0.0328 + tu * 0.4, z0 + 0.0078 * nb], [0.0018 * nb, 0.0011 * nb, 0.0036 * nb], 0.0024, rotY(s * 0.3));
     // mouth: upper lip = central tubercle + two wings following the dental arch; the lower lip is fuller, in two soft lobes
     const M = A.mouth, ym = M.y, arch = (x) => 22 * x * x;
     E([0, ym + M.hu * 0.48 * ly, M.zu - 0.0056], [0.0068, M.hu * 0.58 * ly, 0.0058], 0.004);
@@ -1025,6 +1025,8 @@ export function charBuilderMain() {
   function hairLayer(R, h, style, spec) {
     const Y = HAIR[style];
     if (!Y) return spec.beard ? beardOnly(R, h, spec) : null; // rapado (painted on the scalp) or none
+    // a man's short hair under a cap or a hat: what shows of it is painted on the skin (a thin shell only left crumbs)
+    if (HATS[spec.hat] && !R.f && Y.long == null && !Y.tail && spec.hair !== 'afro') return spec.beard ? beardOnly(R, h, spec) : null;
     const L = new Layer('hair', h, { order: 6, tau: 0.02 });
     const { H, Sh } = headFrame(R);
     const f = R.f, hat = HATS[spec.hat] ? spec.hat : null;
@@ -1077,7 +1079,7 @@ export function charBuilderMain() {
     // hairline: keep the crown side of the forehead–nape line (ragged, it thins out), free the ears and (men) the temples
     if (!long && !Y.bald) L.int(P_plane(hn, N), { reg: REG.hair, k: 0.006 * Sh, nz: 0.0016 * Sh, nf: 170 / Sh });
     if (!long && style !== 'afro') for (const sd of [-1, 1]) X([sd * 0.079, 0.068, -0.01], 0.03, 0.012);
-    if (!f && !long && !Y.bald && style !== 'afro') for (const sd of [-1, 1]) X([sd * 0.058, 0.128, 0.078], 0.026, 0.012);
+    if (!f && !long && !Y.bald && style !== 'afro') for (const sd of [-1, 1]) X([sd * 0.06, 0.13, 0.08], 0.019, 0.012);
     if (Y.bald) { L.int(P_plane([0, 1, 0.35], H(0, 0.108, -0.02)), { reg: REG.hair, k: 0.01 * Sh, nz: 0.002 * Sh, nf: 120 / Sh }); L.int(P_plane([0, 0, 1], H(0, 0, 0.035)), { reg: REG.hair, k: 0.01 * Sh }); }
     if (Y.mohawk) L.int(P_box(H(0, 0.14, -0.01), [0.022 * Sh, 0.1 * Sh, 0.13 * Sh], 0.012 * Sh), { reg: REG.hair, k: 0.008 });
     if (hat) hatCut(L, R, hat);
@@ -1090,7 +1092,7 @@ export function charBuilderMain() {
       L.int(P_plane([0, -1, 0], H(0, 0.06, 0)), { reg: REG.hair, k: 0.01 * Sh });
       L.end(0.018);
     }
-    if (!f && !long && !Y.bald && style !== 'afro' && !Y.mohawk) for (const sd of [-1, 1]) E([sd * 0.0725, 0.074, 0.012], [0.0045, 0.015, 0.008], { k: 0.01, lk: null }); // sideburns
+    if (!f && !long && !Y.bald && style !== 'afro' && !Y.mohawk && !hat) for (const sd of [-1, 1]) E([sd * 0.0725, 0.074, 0.012], [0.0045, 0.015, 0.008], { k: 0.01, lk: null }); // sideburns
     // ponytail, braid or bun on the hair bones
     if (Y.tail === 'pony' || Y.tail === 'braid') {
       const p0 = R.P.hair1, p2 = R.P.hair2;
@@ -1117,7 +1119,7 @@ export function charBuilderMain() {
       E([0, 0.158, -0.078], [0.043, 0.04, 0.043], { k: 0.012, nz: 0.0015 * Sh, nf: 90 / Sh, lk: null });
       L.add(P_torus(H(0, 0.135, -0.07), 0.028 * Sh, 0.005 * Sh, alignY([0, 0.6, -0.8])), { k: 0.004, bone: 'head', reg: REG.hairTie });
     }
-    if (spec.beard && spec.beard !== 'barba3') beardPrims(L, R, spec);
+    // (beards are painted on the skin, characters.js: the old shells poked through the jaw in patches)
     if (long) {
       // loose hair behind and below the ears rides on hair2 (a pivot at the back of the head) so it can swing
       const hb = R.P.head;
@@ -1161,7 +1163,7 @@ export function charBuilderMain() {
     L.end(0.004);
   }
   function beardOnly(R, h, spec) {
-    if (!spec.beard || spec.beard === 'barba3') return null;
+    if (!spec.beard || spec.beard === 'barba3' || !spec.beardShell) return null;
     const L = new Layer('hair', h, { order: 6, tau: 0.02 });
     beardPrims(L, R, spec);
     return L;
@@ -1203,10 +1205,11 @@ export function charBuilderMain() {
       L.end(0.004);
     } else {
       // straw hat (sombrero de paja): a rounded crown with a band, a wide brim
-      L.add(P_cone(H(0, 0.1, -0.012), H(0, 0.205, -0.012), 0.098 * Sh, 0.085 * Sh), { bone: 'head', reg: REG.cap, k: 0 });
+      // (the crown sits a little forward and roomier: the forehead used to poke through its front)
+      L.add(P_cone(H(0, 0.1, -0.006), H(0, 0.205, -0.01), 0.103 * Sh, 0.087 * Sh), { bone: 'head', reg: REG.cap, k: 0 });
       L.add(P_ell(H(0, 0.2, -0.012), [0.085 * Sh, 0.02 * Sh, 0.09 * Sh]), { k: 0.02, bone: 'head', reg: REG.cap });
       L.sub(P_ell(H(0, 0.22, -0.012), [0.03 * Sh, 0.02 * Sh, 0.06 * Sh]), { k: 0.012, reg: REG.cap }); // the dent on top
-      L.add(P_cone(H(0, 0.11, -0.012), H(0, 0.135, -0.012), 0.1 * Sh, 0.093 * Sh), { k: 0.003, bone: 'head', reg: REG.capBrim });
+      L.add(P_cone(H(0, 0.11, -0.006), H(0, 0.135, -0.007), 0.105 * Sh, 0.097 * Sh), { k: 0.003, bone: 'head', reg: REG.capBrim });
       L.group();
       L.add(P_ell(H(0, 0.108, -0.012), [0.19 * Sh, 0.012 * Sh, 0.19 * Sh]), { bone: 'head', reg: REG.cap });
       L.add(P_torus(H(0, 0.105, -0.012), 0.182 * Sh, 0.006 * Sh), { k: 0.004, bone: 'head', reg: REG.cap });
@@ -1243,7 +1246,7 @@ export function charBuilderMain() {
   }
   function eyeMesh(A, C, re, bone, lo = false) {
     const rings = lo ? [[0.0, REG.pupil], [0.17, REG.pupil], [0.19, REG.iris], [0.41, REG.iris], [0.45, REG.eyeWhite], [1.0, REG.eyeWhite], [2.0, REG.eyeWhite]]
-      : [[0.0, REG.pupil], [0.165, REG.pupil], [0.18, REG.iris], [0.27, REG.iris], [0.37, REG.iris], [0.405, REG.iris], [0.412, REG.lash], [0.445, REG.lash], [0.452, REG.eyeWhite], [0.7, REG.eyeWhite], [1.1, REG.eyeWhite], [1.6, REG.eyeWhite], [2.3, REG.eyeWhite], [3.1, REG.eyeWhite]];
+      : [[0.0, REG.pupil], [0.165, REG.pupil], [0.18, REG.iris], [0.27, REG.iris], [0.37, REG.iris], [0.405, REG.iris], [0.412, REG.iris], [0.445, REG.iris], [0.452, REG.eyeWhite], [0.7, REG.eyeWhite], [1.1, REG.eyeWhite], [1.6, REG.eyeWhite], [2.3, REG.eyeWhite], [3.1, REG.eyeWhite]];
     const seg = lo ? 9 : 18;
     const bulge = (th) => 1 + 0.075 * (1 - sstep(0.22, 0.52, th));
     const pole = A.v([C[0], C[1], C[2] + re * bulge(0)], [0, 0, 1], REG.pupil, bone);
@@ -1275,8 +1278,8 @@ export function charBuilderMain() {
       const col = [];
       // rim: inner edge → outer edge (the dark lash line), then the lid skin out to 'far'
       const dm = dir(a, m0), dIn = dir(a, m0 + (upper ? 0.05 : -0.05));
-      col.push(A.v(add(C, scl(dIn, rI)), upper ? [0, -1, 0.3] : [0, 1, 0.3], REG.lash, bone));
-      col.push(A.v(add(C, scl(dm, (rI + rO) * 0.5 + 0.0003 * Sh)), add(dm, [0, upper ? -0.8 : 0.8, 0]), REG.lash, bone));
+      col.push(A.v(add(C, scl(dIn, rI)), upper ? [0, -1, 0.3] : [0, 1, 0.3], upper ? REG.lash : REG.lid, bone));
+      col.push(A.v(add(C, scl(dm, (rI + rO) * 0.5 + 0.0003 * Sh)), add(dm, [0, upper ? -0.8 : 0.8, 0]), upper ? REG.lash : REG.lid, bone));
       for (let j = 0; j <= nb; j++) {
         const t = j / nb, b = mix(m0, far, t * t * 0.6 + t * 0.4);
         const d = dir(a, b);
@@ -1290,14 +1293,18 @@ export function charBuilderMain() {
       const a = grid[i][j], b = grid[i + 1][j], c = grid[i + 1][j + 1], d = grid[i][j + 1];
       if (upper) A.q(a, b, c, d); else A.q(a, d, c, b);
     }
-    if (upper && !lo) { // lashes: a thin dark fringe flicked outward, both faces
+    if (!lo) { // lashes: a strip that curls up and out (upper: long, lower: short), cut into single hairs by the shader
+      const L1 = (upper ? 0.0058 : 0.0022) * Sh, curl = upper ? 0.16 : -0.08;
       for (let i = 0; i < na; i++) {
         const a0 = -aMax + (2 * aMax * i) / na, a1 = -aMax + (2 * aMax * (i + 1)) / na;
-        const fade = (a) => 1 - (Math.abs(a) / aMax) ** 3;
-        const pts = [a0, a1].map((a) => { const m0 = margin(a); return [add(C, scl(dir(a, m0), rO)), add(C, scl(dir(a, m0 + 0.2 * fade(a)), rO + 0.0026 * Sh * fade(a)))]; });
-        const nn = dir((a0 + a1) / 2, margin((a0 + a1) / 2) + 0.9);
-        const v0 = A.v(pts[0][0], nn, REG.lash, bone), v1 = A.v(pts[1][0], nn, REG.lash, bone), v2 = A.v(pts[1][1], nn, REG.lash, bone), v3 = A.v(pts[0][1], nn, REG.lash, bone);
-        A.q(v0, v1, v2, v3); A.q(v0, v3, v2, v1);
+        const fade = (a) => (1 - (Math.abs(a) / aMax) ** 3) * (upper ? 1 - 0.25 * Math.max(0, -a * Math.sign(C[0] || 1)) : 0.7);
+        const ring = (a, t) => { const m0 = margin(a), f0 = fade(a); return add(C, scl(dir(a, m0 + (upper ? 1 : -1) * 0.015 + curl * t * t * f0), rO - 0.0004 * Sh + L1 * f0 * t)); };
+        const ts = [0, 0.5, 1];
+        for (let k = 0; k < 2; k++) {
+          const nn = dir((a0 + a1) / 2, margin((a0 + a1) / 2) + (upper ? 0.9 : -0.9));
+          const v0 = A.v(ring(a0, ts[k]), nn, REG.lashF, bone), v1 = A.v(ring(a1, ts[k]), nn, REG.lashF, bone), v2 = A.v(ring(a1, ts[k + 1]), nn, REG.lashF, bone), v3 = A.v(ring(a0, ts[k + 1]), nn, REG.lashF, bone);
+          A.q(v0, v1, v2, v3); A.q(v0, v3, v2, v1);
+        }
       }
     }
   }
@@ -1551,6 +1558,7 @@ export function charBuilderMain() {
       case REG.hair: case REG.beard: return MAT.hair;
       case REG.eyeWhite: case REG.iris: case REG.pupil: return MAT.eye;
       case REG.lash: return part === 'eye' ? MAT.eye : MAT.hair;
+      case REG.lashF: return MAT.lash;
       case REG.lid: return MAT.lid;
       case REG.cap: case REG.capBrim: return MAT.twill;
       case REG.lens: case REG.frame: return MAT.gloss;
@@ -1588,6 +1596,25 @@ export function charBuilderMain() {
       }
     }
     return { reg, bones };
+  }
+  // remove the triangles of tiny disconnected islands (bounding box under minD across)
+  function dropCrumbs(M, minD) {
+    const nv = M.nv, idx = M.idx, par = new Int32Array(nv);
+    for (let i = 0; i < nv; i++) par[i] = i;
+    const find = (a) => { while (par[a] !== a) { par[a] = par[par[a]]; a = par[a]; } return a; };
+    for (let t = 0; t < idx.length; t += 3) { const a = find(idx[t]), b = find(idx[t + 1]), c = find(idx[t + 2]); par[b] = a; par[c] = a; }
+    const box = new Map();
+    for (let t = 0; t < idx.length; t++) {
+      const v = idx[t], r = find(v); let b = box.get(r);
+      if (!b) box.set(r, (b = [1e9, 1e9, 1e9, -1e9, -1e9, -1e9]));
+      for (let k = 0; k < 3; k++) { const x = M.pos[v * 3 + k]; if (x < b[k]) b[k] = x; if (x > b[k + 3]) b[k + 3] = x; }
+    }
+    const small = new Set();
+    for (const [r, b] of box) if (Math.hypot(b[3] - b[0], b[4] - b[1], b[5] - b[2]) < minD) small.add(r);
+    if (!small.size) return;
+    const out = [];
+    for (let t = 0; t < idx.length; t += 3) if (!small.has(find(idx[t]))) out.push(idx[t], idx[t + 1], idx[t + 2]);
+    M.idx = idx instanceof Uint32Array ? Uint32Array.from(out) : Array.isArray(idx) ? out : new idx.constructor(out);
   }
   function mirrorPart(P) {
     const nv = P.nv;
@@ -1819,6 +1846,7 @@ export function charBuilderMain() {
       const layer = L[name];
       layer.buildHash(0.04);
       const M = polygonize(layer, layer.h);
+      if (M && name === 'hair') dropCrumbs(M, (HATS[spec.hat] ? 0.032 : 0.012) * S); // under a hat: nothing but the band above the ears
       if (M) {
         const at = layerAttribs(layer, M, fns[name]);
         const P = { name, nv: M.nv, pos: M.pos, nrm: M.nrm, idx: M.idx, reg: at.reg, bones: at.bones, order: layer.order };
@@ -1887,5 +1915,5 @@ export function charBuilderMain() {
   // bone rest offsets and bind (A-pose) rotations for a spec, without building any geometry
   function rig(spec) { return makeRig(spec).bones.map((b) => ({ name: b.name, parent: b.parent, off: b.off, rot: b.rot })); }
   const landmarks = (g) => baseLandmarks({ f: g === 'f' });
-  return { build, rig, transferables, landmarks, REG, MAT, BONES, VERSION: 16, _dbg: { makeRig, hairLayer, headLayer, headLandmarks } };
+  return { build, rig, transferables, landmarks, REG, MAT, BONES, VERSION: 19, _dbg: { makeRig, hairLayer, headLayer, headLandmarks } };
 }

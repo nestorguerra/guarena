@@ -113,12 +113,14 @@ function palette(desc) {
   P[7] = shoe; P[8] = white ? C('#dedad2') : C('#26211c'); P[9] = white ? C('#f4f4f0') : shade(shoe, 0.7);
   P[10] = white ? (desc.top && desc.top.toLowerCase() !== '#f4f4f0' ? top.clone() : C('#b8302a')) : shade(shoe, 0.8);
   P[11] = hair; P[12] = C(desc.gender === 'f' ? '#1d1f24' : '#1d1f24'); P[27] = shade(hair, 0.92);
-  P[13] = C('#ece8e2'); P[14] = C(desc.eyes || '#4a2e1c'); P[15] = C('#08080a'); P[16] = C('#140f0c');
+  P[13] = C('#e6dfd6'); P[14] = C(desc.eyes || '#4a2e1c'); P[15] = C('#08080a'); P[16] = C('#140f0c');
   P[17] = acc; P[18] = shade(acc, 0.82); P[19] = C(desc.glasses === 'sol' ? '#0c0d10' : '#b7c3cb'); P[20] = C(desc.glassesColor || '#121214');
   P[21] = C(desc.bagColor || '#18b35c'); P[22] = C(desc.bagColor ? desc.bagColor : '#0c5d2f');
   P[23] = C('#5a3a22'); P[24] = C(desc.under || '#f0ece0'); P[25] = C('#4a1c1c'); P[28] = C('#f2f2f0'); P[30] = C('#d8d0c0');
   P[31] = skin.clone().lerp(C('#f6d2c8'), 0.45);
-  for (let i = 0; i < 32; i++) if (!P[i]) P[i] = C('#ff00ff');
+  P[32] = C('#0b0806'); // eyelashes
+  P[29] = skin.clone().lerp(C('#c98f86'), 0.25).multiplyScalar(0.95); // lids, and the pink waterline under the eye
+  for (let i = 0; i < 33; i++) if (!P[i]) P[i] = C('#ff00ff');
   return P;
 }
 
@@ -210,7 +212,7 @@ function faceMaps(B, g) {
         D += L * 0.14 * gl(y - yl, 0.0022); // inner lips a shade deeper
         Hh += 0.00022 * gl(y - yu, 0.00045) * cf; // the vermilion border rolls out a little ("white roll")
         Hh -= 0.00042 * gl(y - yl, 0.00055) * edge;
-        Fh += L * 0.000032 * Math.sin((x / 0.00105) * Math.PI * 2 + Math.sin(y * 1300) * 0.7 + Math.sin(x * 2100) * 1.3) * (0.45 + 0.55 * (1 - ax / mw));
+        Fh += L * 0.000011 * Math.sin((x / 0.0011) * Math.PI * 2 + Math.sin(y * 1300) * 0.9 + Math.sin(x * 2100) * 1.6) * (0.45 + 0.55 * (1 - ax / mw));
         Ro -= L * 0.15;
         // lower-lip highlight zone a bit glossier
         Ro -= 0.06 * gl(x, 0.008) * gl(y - (ym - hl * 0.45), 0.0025);
@@ -243,13 +245,13 @@ function faceMaps(B, g) {
       for (const s of [-1, 1]) {
         const nx = (x - s * 0.0056 * nb) / (0.0029 * nb), ny = (y - (0.0331 + tu * 0.4)) / (0.00185 * nb);
         const dn = nx * nx + ny * ny;
-        D += 0.6 * Math.exp(-dn * 1.3); // nostrils: dark, but not holes seen from the front
-        Hh -= 0.0022 * Math.exp(-dn * 1.1);
+        D += 0.36 * Math.exp(-dn * 1.3); // nostrils: shaded, never holes seen from the front
+        Hh -= 0.0012 * Math.exp(-dn * 1.1);
         const ex = (x - s * 0.0128 * nb) / (0.0063 * nb), ey = (y - 0.0378) / (0.0068 * nb);
         const r = Math.sqrt(ex * ex + ey * ey);
         const w = ey > -0.35 ? 1 : 0.25;
-        D += 0.2 * gl(r - 1.0, 0.17) * w;
-        Hh -= 0.00055 * gl(r - 1.0, 0.2) * w;
+        D += 0.14 * gl(r - 1.0, 0.2) * w;
+        Hh -= 0.00045 * gl(r - 1.0, 0.24) * w;
       }
       Ro -= 0.08 * gl(x, 0.009) * gl(y - (0.045 + tu), 0.008);
       Ro -= 0.04 * gl(x, 0.02) * gl(y - 0.11, 0.02); // forehead T-zone
@@ -342,20 +344,24 @@ const CHAR_FS_HEAD = `
 flat varying float vMat; varying float vAO; varying vec3 vFace; varying vec3 vRest; varying vec3 vHairT;
 uniform vec3 uHair; uniform vec3 uLip; uniform float uStubble; uniform float uMakeup; uniform float uBuzz; uniform float uAge;
 uniform sampler2D uPrint; uniform float uPrintOn; uniform vec3 uPrintC; uniform vec2 uPrintS; uniform float uZombie;
-uniform sampler2D uFaceA; uniform sampler2D uFaceB; uniform float uFem; uniform vec4 uHL; uniform float uPart; uniform float uCurl;
+uniform sampler2D uFaceA; uniform sampler2D uFaceB; uniform float uFem; uniform vec4 uHL; uniform float uPart; uniform float uCurl; uniform float uCapHair; uniform float uBeard; uniform float uHairEnd;
 float cHash(vec3 p) { p = fract(p * 0.3183099 + vec3(0.71, 0.113, 0.419)); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
 float cNoise(vec3 x) { vec3 i = floor(x); vec3 f = fract(x); f = f * f * (3.0 - 2.0 * f);
   return mix(mix(mix(cHash(i), cHash(i + vec3(1,0,0)), f.x), mix(cHash(i + vec3(0,1,0)), cHash(i + vec3(1,1,0)), f.x), f.y),
              mix(mix(cHash(i + vec3(0,0,1)), cHash(i + vec3(1,0,1)), f.x), mix(cHash(i + vec3(0,1,1)), cHash(i + vec3(1,1,1)), f.x), f.y), f.z); }
+vec2 gRelD; // screen-space derivatives of the face relief, from the height map's own gradient (smooth when magnified)
+float gSkin; // 1 on skin: light scatters under it (wrapped, reddish terminator)
 vec3 cBump(vec3 n, float h, float faceDir) {
   vec3 dp1 = dFdx(-vViewPosition), dp2 = dFdy(-vViewPosition);
-  float dh1 = dFdx(h), dh2 = dFdy(h);
+  float dh1 = dFdx(h) + gRelD.x, dh2 = dFdy(h) + gRelD.y;
   vec3 r1 = cross(dp2, n), r2 = cross(n, dp1);
   float det = dot(dp1, r1);
   vec3 g = sign(det) * (dh1 * r1 + dh2 * r2);
   return normalize(abs(det) * n - g);
 }
 float gBumpH; float gRough; float gSheen; float gMetal; float gPX; vec3 gHairT; float gHairK;
+// skin: diffuse light wraps past the terminator, red furthest (it scatters deepest under the skin), a little green, hardly any blue
+vec3 cSkinIrr(float nl) { vec3 w = vec3(0.46, 0.22, 0.15); return clamp((vec3(nl) + w) / (1.0 + w), 0.0, 1.0) * vec3(1.0, 0.985, 0.975); }
 float fa(float lambda) { return smoothstep(2.0 * gPX, 5.0 * gPX, lambda); } // fade detail smaller than a few pixels
 `;
 // garment detail in the rest pose (metres): seams and stitching, pockets, plackets and buttons, zips, patterns,
@@ -436,6 +442,21 @@ void garmentTop(inout vec3 col, inout float bump, inout float dk, vec3 P, bool t
   }
   // knitted rib on cuffs, hem bands and necklines
   if (trim && (st == 3 || st == 6 || st == 8 || st == 1 || st == 9)) { float rb = sin((arm ? rr * ra : P.x + P.z) * 1500.0) * 0.5 + 0.5; bump += rb * 0.00035; col *= 0.94 + 0.08 * rb; }
+  // drape: diagonal folds fanning from the armpits, soft ones hanging under the chest, the fabric bunched above the hem
+  if (st != 7 && st != 11) {
+    vec2 ap = vec2(abs(P.x) - 0.16 * S, P.y - 1.34 * S);
+    float ra2 = length(ap), aa = atan(ap.y, -ap.x);
+    float armF = (1.0 - smoothstep(0.03 * S, 0.17 * S, ra2)) * smoothstep(0.012 * S, 0.035 * S, ra2) * step(abs(P.x), 0.17 * S) * (1.0 - float(arm));
+    float wv = sin(aa * 19.0 + cNoise(P * 38.0) * 2.2);
+    bump += wv * 0.0011 * armF; dk += 0.12 * armF * (0.5 - 0.5 * wv);
+    float hemF = smoothstep(uCut.x + 0.1 * S, uCut.x + 0.025 * S, P.y) * smoothstep(uCut.x, uCut.x + 0.012 * S, P.y) * (1.0 - float(arm));
+    float wh = sin(P.y / S * 260.0 + cNoise(vec3(P.x * 30.0, 0.0, P.z * 30.0)) * 5.0 + sin(P.x * 40.0) * 1.5);
+    bump += wh * 0.0014 * hemF * (0.6 + 0.4 * smoothstep(0.02, -0.04, P.z)); dk += 0.1 * hemF * (0.5 - 0.5 * wh);
+    float chestF = smoothstep(1.3 * S, 1.2 * S, P.y) * smoothstep(1.0 * S, 1.12 * S, P.y) * smoothstep(0.02 * S, 0.06 * S, P.z) * (1.0 - float(arm));
+    float wc = sin(P.x / S * 120.0 + cNoise(P * 22.0) * 3.0);
+    bump += wc * 0.0008 * chestF;
+    if (arm) { float slF = smoothstep(0.12 * S, 0.04 * S, t) * 0.8; float wsl = sin(ra * 3.0 + t / S * 90.0 + cNoise(P * 60.0) * 2.5); bump += wsl * 0.0009 * slF; dk += 0.08 * slF * (0.5 - 0.5 * wsl); }
+  }
   ln = clamp(ln, 0.0, 1.0) * gLod;
   bump -= ln * 0.0003;
   col = mix(col, col * 0.64, ln * 0.5);
@@ -554,45 +575,92 @@ function makeCharMaterial(uniforms) {
       .replace('#include <color_fragment>', `#include <color_fragment>
 {
   int mc = int(vMat + 0.5);
-  gBumpH = 0.0; gRough = 0.7; gSheen = 0.0; gMetal = 0.0; gHairK = 0.0; gHairT = vec3(0.0, 1.0, 0.0);
+  gBumpH = 0.0; gRough = 0.7; gSheen = 0.0; gMetal = 0.0; gHairK = 0.0; gHairT = vec3(0.0, 1.0, 0.0); gRelD = vec2(0.0); gSkin = 0.0;
   vec3 P = vRest;
   gPX = max(length(fwidth(P)), 1e-5);
-  if (mc == 0) { // skin
-    float n = cNoise(P * 90.0) * 0.6 * fa(0.011) + cNoise(P * 260.0) * 0.4 * fa(0.004);
-    diffuseColor.rgb *= 0.97 + 0.07 * n;
-    gRough = 0.52; gSheen = 0.35; gBumpH = n * 0.00025;
-  } else if (mc == 1 || mc == 2 || mc == 15) { // face and eyelids: painted lips, brows and creases with relief; stubble, makeup
-    vec3 F = vFace; // head-bone space, metres (male reference)
+  if (mc == 0 || mc == 1 || mc == 2 || mc == 15) { // skin: the body, the face and the lids share one shading, so no seam shows where they meet
+    vec3 F = vFace; // head-bone space, metres (male reference); zero off the head
+    bool hasF = dot(F, F) > 1e-10;
     float fem = uFem;
     float n = cNoise(P * 90.0) * 0.6 * fa(0.011) + cNoise(P * 300.0) * 0.4 * fa(0.0035);
-    vec3 col = diffuseColor.rgb * (0.97 + 0.06 * n);
-    vec2 fuv = vec2(F.x / 0.14 + 0.5, (F.y + 0.045) / 0.16);
-    float front = smoothstep(0.02, 0.04, F.z) * step(0.002, fuv.x) * step(fuv.x, 0.998) * step(0.002, fuv.y) * step(fuv.y, 0.998);
-    vec3 pa = texture2D(uFaceA, fuv).rgb * front;
-    vec3 pb = texture2D(uFaceB, fuv).rgb;
-    float lipA = pa.r;
-    col = mix(col, uLip * (0.94 + 0.08 * n), lipA * (0.84 + 0.1 * fem));
-    col = mix(col, uHair * 0.78, pa.g * 0.93);
-    col *= 1.0 - pa.b * vec3(0.5, 0.58, 0.6);
-    float beardZone = smoothstep(0.042, 0.03, F.y + 0.25 * max(F.z - 0.02, 0.0)) * smoothstep(-0.05, -0.03, F.z) * smoothstep(-0.062, -0.04, F.y) * smoothstep(-0.025, 0.012, F.z) * (1.0 - lipA);
-    float scalp = smoothstep(0.118, 0.13, F.y - 0.33 * max(F.z, 0.0) + 0.1 * max(-F.z, 0.0)) * smoothstep(0.066, 0.06, abs(F.x));
-    float dots = mix(0.5, cNoise(P * 1400.0), fa(0.0008));
-    col = mix(col, uHair * 0.7, beardZone * uStubble * (0.45 + 0.4 * dots));
-    col = mix(col, uHair * 0.75, scalp * uBuzz * (0.55 + 0.35 * dots));
-    if (uHL.w > -5.0) { // soft hairline: sparse hair for a few millimetres below the edge of the hair shell
-      float sd = dot(uHL.xyz, F) - uHL.w;
-      float hlA = (1.0 - smoothstep(0.0, 0.0065, sd)) * step(-0.003, sd) * (smoothstep(0.035, 0.055, F.z) + smoothstep(-0.06, -0.08, F.z)); // forehead and nape only, not beside the ears
-      col = mix(col, uHair * 0.78, hlA * 0.55 * (0.4 + 0.6 * dots));
+    float mot = cNoise(P * 16.0 + 4.3) * 0.65 + cNoise(P * 41.0 + 1.7) * 0.35; // blotches: skin is never one flat colour
+    vec3 col = diffuseColor.rgb * (0.975 + 0.05 * n);
+    col *= mix(vec3(1.0), vec3(1.04, 0.955, 0.94), smoothstep(0.45, 0.85, mot) * 0.55) * (0.985 + 0.03 * mot);
+    gSkin = 1.0; gRough = 0.5; gSheen = 0.35; gBumpH = n * 0.0002;
+    if (hasF) { // painted lips, brows and creases with relief; stubble, makeup; the warm and cool parts of a face
+      vec2 fuv = vec2(F.x / 0.14 + 0.5, (F.y + 0.045) / 0.16);
+      float front = smoothstep(0.02, 0.04, F.z) * step(0.002, fuv.x) * step(fuv.x, 0.998) * step(0.002, fuv.y) * step(fuv.y, 0.998);
+      vec3 pa = texture2D(uFaceA, fuv).rgb * front;
+      vec3 pb = texture2D(uFaceB, fuv).rgb;
+      float lipA = pa.r;
+      col = mix(col, uLip * (0.94 + 0.08 * n), lipA * (0.84 + 0.1 * fem));
+      col = mix(col, uHair * 0.78, pa.g * 0.93);
+      col *= 1.0 - pa.b * vec3(0.46, 0.55, 0.57);
+      float beardZone = smoothstep(0.042, 0.03, F.y + 0.25 * max(F.z - 0.02, 0.0)) * smoothstep(-0.05, -0.03, F.z) * smoothstep(-0.07, -0.035, F.y) * smoothstep(-0.03, 0.012, F.z) * (1.0 - lipA);
+      float scalp = smoothstep(0.118, 0.13, F.y - 0.33 * max(F.z, 0.0) + 0.1 * max(-F.z, 0.0)) * smoothstep(0.066, 0.06, abs(F.x));
+      float dots = mix(0.5, cNoise(P * 1400.0), fa(0.0008));
+      col = mix(col, uHair * 0.7, beardZone * uStubble * (0.45 + 0.4 * dots));
+      col = mix(col, mix(col, vec3(0.3, 0.34, 0.36), 0.18), beardZone * uStubble * (1.0 - fem) * 0.5); // the blue-grey of a shaven jaw
+      col = mix(col, uHair * 0.75, scalp * uBuzz * (0.55 + 0.35 * dots));
+      if (uBeard > 0.5) { // beards: moustache, goatee, short or full, painted hair by hair with a ragged edge
+        int bst = int(uBeard + 0.5);
+        float mx = abs(F.x);
+        float lipTop = 0.0146 - 9.0 * mx * mx;
+        float must = (1.0 - smoothstep(0.85, 1.08, length(vec2(F.x / 0.028, (F.y - 0.0215) / 0.0092)))) * smoothstep(lipTop - 0.0012, lipTop + 0.0006, F.y) * smoothstep(0.06, 0.075, F.z);
+        float chinB = 1.0 - smoothstep(0.82, 1.06, length(vec2(F.x / 0.022, (F.y + 0.027) / 0.021)));
+        float soul = 1.0 - smoothstep(0.7, 1.05, length(vec2(F.x / 0.0065, (F.y + 0.0105) / 0.0068)));
+        vec2 cq = vec2(mx - mix(0.026, 0.018, clamp((0.004 - F.y) / 0.026, 0.0, 1.0)), 0.0);
+        float corner = (1.0 - smoothstep(0.003, 0.0055, abs(cq.x))) * step(-0.024, F.y) * step(F.y, 0.006);
+        float m = bst == 1 ? must : bst == 2 ? max(must, max(chinB, max(soul, corner))) : max(must, beardZone * (bst == 4 ? 1.15 : 1.0));
+        m *= (1.0 - lipA) * step(0.0, F.z + 0.03);
+        float rag = cNoise(P * 520.0) * 0.6 + cNoise(P * 140.0) * 0.4;
+        float dens = smoothstep(0.3, 0.8, m * 1.08 + (rag - 0.5) * 0.6);
+        // single hairs growing down and out (finer and sparser at the edges, the skin showing between them)
+        float strd = cNoise(vec3(F.x * 1300.0, F.y * 240.0, F.z * 1300.0)) * fa(0.0009);
+        float str2 = cNoise(vec3(F.x * 3400.0, F.y * 700.0, F.z * 3400.0)) * fa(0.0004);
+        float hairs = smoothstep(0.25, 0.75, strd * 0.65 + str2 * 0.35 + dens * 0.35);
+        vec3 bc = uHair * (0.62 + 0.5 * strd) + vec3(0.03, 0.022, 0.016) * str2; // tips catch a little warm light
+        float cover = dens * mix(0.45, bst == 4 ? 0.95 : bst == 3 ? 0.84 : 0.9, hairs) * (0.82 + 0.18 * smoothstep(0.5, 1.0, dens));
+        col = mix(col, bc, cover);
+        gBumpH += dens * ((strd - 0.5) * 0.0009 + (str2 - 0.5) * 0.0004 + (bst == 4 ? 0.0012 : 0.0006));
+        gRough = mix(gRough, 0.66, dens);
+      }
+      if (uCapHair > 0.5) { // short hair under a cap: above the ears and at the nape, thinning out at its edge
+        vec3 ea = vec3(abs(F.x) - 0.08, F.y - 0.066, F.z + 0.012);
+        float band = smoothstep(0.036, 0.058, F.y + 0.12 * max(-F.z - 0.03, 0.0)) * smoothstep(0.052, 0.03, F.z) * smoothstep(0.024, 0.034, length(ea));
+        float edge = cNoise(P * 900.0) * 0.5 + 0.5;
+        col = mix(col, uHair * 0.72, band * (0.75 + 0.2 * dots) * smoothstep(0.2, 0.6, band + edge * 0.35));
+      }
+      if (uHL.w > -5.0) { // soft hairline: sparse hair for a few millimetres below the edge of the hair shell
+        float sd = dot(uHL.xyz, F) - uHL.w;
+        float hlA = (1.0 - smoothstep(0.0, 0.0065, sd)) * step(-0.003, sd) * (smoothstep(0.035, 0.055, F.z) + smoothstep(-0.06, -0.08, F.z)); // forehead and nape only, not beside the ears
+        col = mix(col, uHair * 0.78, hlA * 0.55 * (0.4 + 0.6 * dots));
+      }
+      // blood near the surface: cheeks, the nose, the ears and the chin a little rosier; the eye sockets a touch cooler
+      float cheek = exp(-pow((abs(F.x) - 0.042) / 0.017, 2.0) - pow((F.y - 0.046) / 0.016, 2.0)) * smoothstep(0.0, 0.03, F.z);
+      col = mix(col, col * vec3(1.07, 0.88, 0.86), cheek * (0.26 + 0.3 * uMakeup * fem));
+      float nose = exp(-pow(F.x / 0.013, 2.0) - pow((F.y - 0.044) / 0.012, 2.0)) * step(0.09, F.z);
+      col = mix(col, col * vec3(1.06, 0.89, 0.87), nose * 0.34);
+      float ear = smoothstep(0.066, 0.078, abs(F.x)) * smoothstep(0.02, 0.05, F.y) * smoothstep(0.11, 0.09, F.y);
+      col = mix(col, col * vec3(1.06, 0.88, 0.86), ear * 0.4);
+      float chin = exp(-pow(F.x / 0.018, 2.0) - pow((F.y + 0.026) / 0.012, 2.0)) * step(0.05, F.z);
+      col = mix(col, col * vec3(1.04, 0.92, 0.9), chin * 0.25);
+      float sock = 0.0;
+      for (int k = 0; k < 2; k++) { float sx = k == 0 ? 0.032 : -0.032; sock += exp(-pow((F.x - sx) / 0.016, 2.0) - pow((F.y - 0.066) / 0.009, 2.0)); }
+      col = mix(col, col * vec3(0.9, 0.9, 0.95), clamp(sock, 0.0, 1.0) * step(0.05, F.z) * 0.35);
+      float wr = uAge * (0.5 + 0.5 * sin(F.y * 900.0 + cNoise(P * 200.0) * 3.0)) * smoothstep(0.06, 0.12, F.y) * step(0.07, F.z) * fa(0.007);
+      col *= 1.0 - wr * 0.07;
+      // relief (lips, folds, nostrils, creases): gradient taken from the map itself, so it stays smooth up close
+      float rk = 0.00085 * front * (1.0 - smoothstep(0.0007, 0.0016, gPX));
+      vec2 tx = vec2(1.0 / 512.0, 0.0);
+      float hdu = (texture2D(uFaceB, fuv + tx.xy).r - texture2D(uFaceB, fuv - tx.xy).r) * 256.0;
+      float hdv = (texture2D(uFaceB, fuv + tx.yx).r - texture2D(uFaceB, fuv - tx.yx).r) * 256.0;
+      vec2 u1 = dFdx(fuv), u2 = dFdy(fuv);
+      gRelD = vec2(hdu * u1.x + hdv * u1.y, hdu * u2.x + hdv * u2.y) * rk;
+      // the T-zone shines a little, the cheeks are drier
+      gRough = 0.5 + pb.g * front + 0.06 * cheek;
     }
-    float cheek = exp(-pow((abs(F.x) - 0.042) / 0.016, 2.0) - pow((F.y - 0.048) / 0.014, 2.0)) * step(0.02, F.z);
-    col = mix(col, col * vec3(1.06, 0.87, 0.85), cheek * (0.22 + 0.33 * uMakeup * fem));
-    float nose = exp(-pow(F.x / 0.012, 2.0) - pow((F.y - 0.046) / 0.01, 2.0)) * step(0.1, F.z);
-    col = mix(col, col * vec3(1.05, 0.9, 0.88), nose * 0.3);
-    float wr = uAge * (0.5 + 0.5 * sin(F.y * 900.0 + cNoise(P * 200.0) * 3.0)) * smoothstep(0.06, 0.12, F.y) * step(0.07, F.z) * fa(0.007);
-    col *= 1.0 - wr * 0.07;
     diffuseColor.rgb = col;
-    float rel = pb.r * 0.001 * front * (1.0 - smoothstep(0.0007, 0.0016, gPX)); // relief fades before it can alias
-    gRough = 0.5 + pb.g * front; gSheen = 0.35; gBumpH = n * 0.0002 + rel;
   } else if (mc == 3) { // cotton jersey (with an optional chest print projected from the front, rest pose)
     if (uPrintOn > 0.5 && P.z > uPrintC.z) {
       vec2 q = (P.xy - uPrintC.xy) / uPrintS * 0.5 + 0.5;
@@ -632,15 +700,25 @@ function makeCharMaterial(uniforms) {
     vec3 d = F - vec3(uPart, 0.188, -0.022);
     float az = atan(d.x, d.z), rad = length(d.xz) + max(0.0, -d.y) * 0.9;
     if (bd) { az = atan(F.x, F.z + 0.02) * 1.6; rad = 0.1 - F.y; }
+    // long hair ends in separate locks of different lengths, not a clean cut
+    if (uHairEnd > -5.0 && !bd) {
+      float e = (F.y - uHairEnd) / 0.05;
+      if (e < 1.0) {
+        float lenN = cNoise(vec3(az * 34.0, 0.5, 1.0)) * 0.55 + cNoise(vec3(az * 120.0, 2.0, 3.0)) * 0.3 + cNoise(vec3(az * 400.0, 4.0, 5.0)) * 0.15;
+        if (e < lenN * 1.05 - 0.08) discard;
+      }
+    }
     float lk = cNoise(vec3(az * 6.5, rad * 8.0, 1.3)), lk2 = cNoise(vec3(az * 17.0, rad * 20.0, 4.1));
-    float s1 = cNoise(vec3(az * 58.0 + lk * 3.0, rad * 11.0, 3.0)) * fa(0.006), s2 = cNoise(vec3(az * 185.0 + lk2 * 4.0, rad * 28.0, 7.0)) * fa(0.002);
-    float str = 0.5 + (s1 - 0.5 * fa(0.006)) * 0.8 + (s2 - 0.5 * fa(0.002)) * 0.4;
+    float s1 = cNoise(vec3(az * 44.0 + lk * 3.0, rad * 5.0, 3.0)) * fa(0.006), s2 = cNoise(vec3(az * 130.0 + lk2 * 4.0, rad * 9.0, 7.0)) * fa(0.0025);
+    float str = 0.5 + (s1 - 0.5 * fa(0.006)) * 0.7 + (s2 - 0.5 * fa(0.0025)) * 0.35;
     float tip = smoothstep(0.1, 0.32, rad) * (bd ? 0.0 : 1.0); // long hair lightens towards the ends
-    diffuseColor.rgb *= (0.6 + 0.58 * str) * (0.82 + 0.32 * lk) * (1.0 + 0.18 * tip);
+    float gap = smoothstep(0.3, 0.17, cNoise(vec3(az * 30.0, rad * 3.0, 4.1))) * 0.2; // the dark partings between locks, long and thin
+    diffuseColor.rgb *= (0.78 + 0.34 * str) * (0.86 + 0.26 * lk) * (1.0 - gap) * (1.0 + 0.16 * tip);
     diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(1.08, 1.02, 0.94), tip * 0.5);
-    gRough = 0.36 + 0.24 * (1.0 - str); gSheen = 0.9; gBumpH = (str - 0.5) * 0.0011 + (lk - 0.5) * 0.0024 + (lk2 - 0.5) * 0.0009;
+    if (bd) diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * 1.35 + 0.012, str * 0.35); // a beard catches the light on its tips
+    gRough = 0.46 + 0.16 * (1.0 - str); gSheen = 0.9; gBumpH = (str - 0.5) * 0.0005 + (lk - 0.5) * 0.0022 + (lk2 - 0.5) * 0.0009;
     gHairT = normalize(vHairT + normalize(vNormal) * (lk - 0.5) * 0.5); // locks tilt the band a little
-    gHairK = (bd ? 0.35 : 1.0) * (1.0 - 0.75 * uCurl); gRough += 0.15 * uCurl; // curls scatter the light
+    gHairK = (bd ? 0.8 : 1.25) * (1.0 - 0.75 * uCurl); gRough += 0.15 * uCurl; gSheen = 0.45; // curls scatter the light
   } else if (mc == 11) { // eye (wet): iris fibres, collarette and limbal ring; a few veins towards the corners
     vec3 F = vFace;
     vec3 d = normalize(F - vec3(F.x > 0.0 ? 0.032 : -0.032, 0.075, 0.075));
@@ -653,7 +731,26 @@ function makeCharMaterial(uniforms) {
     float scl = smoothstep(0.45, 0.52, th);
     float vein = smoothstep(0.64, 0.82, cNoise(vec3(ph * 9.0, th * 5.0, 1.0))) * smoothstep(0.7, 1.2, th);
     diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(1.0, 0.8, 0.78), (vein * 0.35 + smoothstep(0.8, 1.3, th) * 0.12) * scl);
-    gRough = 0.06;
+    // the limbal ring: a soft grey-brown shadow round the iris, not a black line
+    float limb = smoothstep(0.37, 0.43, th) * (1.0 - smoothstep(0.45, 0.56, th));
+    diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.16, 0.13, 0.11), limb * 0.55);
+    // the white of the eye: ivory, greyer towards the corners and in the shadow of the upper lid
+    float lidSh = smoothstep(0.1, 0.55, d.y) * 0.3 + smoothstep(0.6, 1.1, th) * 0.18;
+    diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.84, 0.8, 0.78), scl * (0.35 + lidSh));
+    gRough = 0.05;
+  }
+  else if (mc == 16) { // eyelashes: fine dark hairs, in little clumps, each tapering to its tip
+    vec3 F = vFace;
+    vec3 e = F - vec3(F.x > 0.0 ? 0.032 : -0.032, 0.075, 0.075);
+    float az = atan(e.x, e.z);
+    float t = clamp((length(e) - 0.0158) / 0.0058, 0.0, 1.0);
+    float c = fract(az * 95.0 + cNoise(vec3(az * 23.0, 1.0, 2.0)) * 1.4);
+    float w = mix(0.62, 0.1, t) * (0.75 + 0.5 * cNoise(vec3(az * 60.0, 3.0, 1.0)));
+    // single hairs only where a pixel is finer than a lash; further away the fringe reads as a soft dark line
+    float far = smoothstep(0.00025, 0.0007, gPX);
+    if (abs(c - 0.5) > mix(w * 0.5, 0.5, far) || (far > 0.5 && t > 0.55)) discard;
+    diffuseColor.rgb *= 0.9;
+    gRough = 0.45;
   }
   else if (mc == 12) { gRough = 0.12; } // glossy plastic / lenses
   else if (mc == 13) { gRough = 0.3; gMetal = 1.0; } // metal
@@ -678,6 +775,9 @@ function makeCharMaterial(uniforms) {
     gRough = mix(gRough, 0.35, bl);
   }
 }`)
+      .replace('#include <lights_physical_pars_fragment>', THREE.ShaderChunk.lights_physical_pars_fragment.replace(
+        'reflectedLight.directDiffuse += irradiance * BRDF_Lambert( material.diffuseColor );',
+        'reflectedLight.directDiffuse += (gSkin > 0.5 ? cSkinIrr(dot(geometryNormal, directLight.direction)) * directLight.color : irradiance) * BRDF_Lambert( material.diffuseColor );'))
       .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
 roughnessFactor = gRough;`)
       .replace('#include <metalnessmap_fragment>', `#include <metalnessmap_fragment>
@@ -688,8 +788,9 @@ normal = cBump(normal, gBumpH, faceDirection);`)
 material.sheenColor = mix(vec3(0.0), (int(vMat + 0.5) <= 2 || int(vMat + 0.5) == 15) ? vec3(0.32, 0.12, 0.08) : diffuseColor.rgb * 0.6 + 0.06, clamp(gSheen, 0.0, 1.0));
 material.sheenRoughness = (int(vMat + 0.5) <= 2 || int(vMat + 0.5) == 15) ? 0.5 : 0.75;
 { int mcs = int(vMat + 0.5);
-  float spk = (mcs <= 2 || mcs == 15) ? 0.7 : (mcs >= 3 && mcs <= 6) ? 0.4 : (mcs == 11 || mcs == 12) ? 1.6 : 1.0;
-  material.specularColor *= spk; }`)
+  float spk = (mcs <= 2 || mcs == 15) ? 0.7 : (mcs >= 3 && mcs <= 6) ? 0.4 : (mcs == 11 || mcs == 12) ? 1.6 : mcs == 10 ? 0.22 : mcs == 16 ? 0.3 : 1.0;
+  material.specularColor *= spk;
+  material.specularF90 *= mcs == 10 ? 0.22 : (mcs >= 3 && mcs <= 9) ? 0.55 : mcs == 16 ? 0.3 : 1.0; }`)
       .replace('#include <lights_fragment_end>', `#include <lights_fragment_end>
 #if NUM_DIR_LIGHTS > 0
 if (gHairK > 0.0) {
@@ -698,7 +799,8 @@ if (gHairK > 0.0) {
   float th = dot(Tn, Hh), sn = sqrt(max(0.0, 1.0 - th * th));
   float nl = clamp(dot(normal, Lh), 0.0, 1.0);
   float lit = clamp(dot(reflectedLight.directDiffuse, vec3(0.333)) / (dot(diffuseColor.rgb * directionalLights[0].color, vec3(0.333)) * nl * RECIPROCAL_PI + 1e-4), 0.0, 1.0);
-  vec3 band = directionalLights[0].color * (pow(sn, 90.0) * 0.1 + pow(sn, 16.0) * 0.03 * (diffuseColor.rgb * 3.0 + 0.15)) * nl * lit * gHairK;
+  float th2 = dot(normalize(Tn + normal * 0.18), Hh), sn2 = sqrt(max(0.0, 1.0 - th2 * th2)); // the secondary lobe, tinted by the hair
+  vec3 band = directionalLights[0].color * (pow(sn, 140.0) * 0.055 * (diffuseColor.rgb * 1.6 + 0.35) + pow(sn2, 26.0) * 0.045 * (diffuseColor.rgb * 3.5 + 0.06)) * nl * lit * gHairK;
   reflectedLight.directSpecular += band;
 }
 #endif`)
@@ -707,7 +809,7 @@ if (gHairK > 0.0) {
   reflectedLight.indirectDiffuse *= ao; reflectedLight.indirectSpecular *= ao;
   reflectedLight.directDiffuse *= mix(1.0, ao, 0.45); reflectedLight.directSpecular *= mix(1.0, ao, 0.6); }`);
   };
-  m.customProgramCacheKey = () => 'char10';
+  m.customProgramCacheKey = () => 'char11';
   return m;
 }
 
@@ -878,7 +980,7 @@ export class CharacterFactory {
   material(desc) {
     const m = this.matPool.pop() || makeCharMaterial({ uHair: { value: new THREE.Color() }, uLip: { value: new THREE.Color() }, uStubble: { value: 0 }, uMakeup: { value: 0 }, uBuzz: { value: 0 }, uAge: { value: 0 },
       uPrint: { value: kittyTexture() }, uPrintOn: { value: 0 }, uPrintC: { value: new THREE.Vector3() }, uPrintS: { value: new THREE.Vector2(1, 1) }, uZombie: { value: 0 },
-      uFaceA: { value: null }, uFaceB: { value: null }, uFem: { value: 0 }, uHL: { value: new THREE.Vector4(0, 0, 0, -10) }, uPart: { value: 0 }, uCurl: { value: 0 },
+      uFaceA: { value: null }, uFaceB: { value: null }, uFem: { value: 0 }, uHL: { value: new THREE.Vector4(0, 0, 0, -10) }, uPart: { value: 0 }, uCurl: { value: 0 }, uCapHair: { value: 0 }, uBeard: { value: 0 }, uHairEnd: { value: -10 },
       uBody: { value: new THREE.Vector4(1, 1, 0, 0) }, uBend: { value: new THREE.Vector4() }, uGarm: { value: new THREE.Vector4() }, uCut: { value: new THREE.Vector4(0.925, 0.13, 0, 0.47) },
       uTop2: { value: new THREE.Color() }, uBot2: { value: new THREE.Color() }, uThread: { value: new THREE.Color() }, uShoe2: { value: new THREE.Color() } });
     const u = m.userData.u;
@@ -887,9 +989,15 @@ export class CharacterFactory {
     u.uZombie.value = desc.zombie ? 1 : 0;
     const f = desc.gender === 'f';
     u.uLip.value.copy(skin).lerp(new THREE.Color(f ? (desc.lips || '#b65a5e') : '#95524e'), f ? 0.48 : 0.4);
-    u.uStubble.value = !f && (desc.stubble || desc.beard) ? 0.8 : !f && !desc.elderly ? 0.25 : 0;
+    const bst = f ? null : desc.beardStyle || (desc.beard ? (desc.elderly ? 'full' : 'short') : null); // as shapeSpec reads it
+    u.uStubble.value = !f && (desc.stubble || bst) ? (bst === 'barba3' ? 0.95 : 0.8) : !f && !desc.elderly ? 0.25 : 0;
     u.uMakeup.value = f && !desc.elderly ? 1 : 0.3;
     u.uBuzz.value = desc.hairStyle === 'rapado' || desc.hairStyle === 'cresta' ? 1 : 0;
+    const hatK = desc.hat !== undefined ? desc.hat : desc.accessory === 'gorra' || desc.accessory === 'boina' ? desc.accessory : null; // as shapeSpec reads it
+    const hatOn = ['gorra', 'boina', 'gorro', 'sombrero'].includes(hatK);
+    u.uBeard.value = { bigote: 1, perilla: 2, short: 3, full: 4 }[bst] || 0;
+    u.uHairEnd.value = { media: -0.045, largo: -0.21 }[desc.hairStyle] ?? -10; // where the long cuts end (charbuild HAIR.long)
+    u.uCapHair.value = hatOn && !f && !['largo', 'media', 'melena', 'coleta', 'trenza', 'mono', 'afro'].includes(desc.hairStyle || 'corto') && desc.hairStyle !== 'rapado' ? 1 : 0;
     u.uPart.value = desc.hairStyle === 'peinado' ? 0.03 : desc.hairStyle === 'melena' || desc.hairStyle === 'media' ? -0.012 : 0; // where the hair parts
     u.uCurl.value = desc.hairStyle === 'rizos' || desc.hairStyle === 'afro' ? 1 : 0;
     u.uAge.value = desc.elderly ? 1 : 0;
@@ -1313,9 +1421,10 @@ export class Character {
     const idle = 1 - wb;
     R('chest', -0.012 + br * 0.025 * idle); R('spine', -br * 0.006 * idle);
     R('clavL', 0, 0, br * 0.018 * idle); R('clavR', 0, 0, -br * 0.018 * idle);
-    R('armL', 0.02, 0.05, 0.1 + 0.012 * br); R('armR', 0.02, -0.05, -0.1 - 0.012 * br);
-    R('foreL', -0.2, 0.25); R('foreR', -0.2, -0.25);
-    R('handL', 0.1, 0, 0.08); R('handR', 0.1, 0, -0.08);
+    R('armL', -0.07 * idle + 0.02, 0.06, 0.08 + 0.012 * br); R('armR', -0.07 * idle + 0.02, -0.06, -0.08 - 0.012 * br);
+    R('foreL', -0.2 - 0.13 * idle, 0.25 + 0.12 * idle); R('foreR', -0.2 - 0.13 * idle, -0.25 - 0.12 * idle);
+    R('handL', 0.1 + 0.06 * idle, 0.05 * idle, 0.1); R('handR', 0.1 + 0.06 * idle, -0.05 * idle, -0.1);
+    R('neck', 0.035 * idle); R('head', -0.02 * idle);
     // contrapposto: most of the weight on one leg, the other knee soft, the pelvis dropping on the free side
     this.stanceT = (this.stanceT ?? Math.random() * 20) + dt * (0.6 + 0.2 * Math.sin(this.seed));
     const shift = Math.sin(this.stanceT * 0.33 + this.seed) * (0.7 + 0.3 * Math.sin(this.stanceT * 0.11));
@@ -1650,7 +1759,7 @@ export class Character {
     const tgt = FACES[faceWant] || FACES.neutral, fw = faceWant ? clamp(faceW, 0, 1) : 0;
     const fk = 1 - Math.exp(-dt * 9);
     for (const key of FACE_KEYS) F[key] += ((FACES.neutral[key] + (tgt[key] - FACES.neutral[key]) * fw) - F[key]) * fk;
-    const rest = 0.07; // relaxed lids cover the top of the iris
+    const rest = 0.045; // relaxed lids just cover the top of the iris
     const lid = clamp(rest + F.squint + this.blinkP * (0.72 - rest - F.squint), -0.1, 0.9);
     R('lidL', lid); R('lidR', lid);
     this.gazeT -= dt;
@@ -1674,7 +1783,7 @@ export class Character {
     const sm = F.smile * hk, wd = (F.wide - round) * hk;
     O('mouthL', wd + sm * 0.4, sm, -Math.abs(sm) * 0.3); O('mouthR', -wd - sm * 0.4, sm, -Math.abs(sm) * 0.3);
     // --- hands: relaxed curl, a loose fist running, tight fists fighting, gripping the wheel, open palms
-    const relaxed = lerp(0.3, 0.75, rb) + 0.08 * wb;
+    const relaxed = lerp(0.42, 0.75, rb) + 0.05 * wb; // relaxed hands: the fingers curl a little, more towards the little finger
     const c1 = lerp(lerp(lerp(relaxed, 1.35, fist), 1.15, grip), 0.08, open), c2 = lerp(lerp(lerp(relaxed * 1.2, 1.55, fist), 1.3, grip), 0.05, open);
     const th = lerp(lerp(0.28, 1, fist), 0.75, grip) * (1 - 0.85 * open); // the thumb folds over the curled fingers
     R('fingL', 0, 0, -c1); R('fing2L', 0, 0, -c2); R('fingR', 0, 0, c1); R('fing2R', 0, 0, c2);
