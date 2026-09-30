@@ -3,6 +3,8 @@
 // talk, blink, gaze...). Skin, cloth, denim, hair and eyes get their own shading in one material.
 import * as THREE from 'three';
 import { charBuilderMain } from './charbuild.js';
+import { mhLib } from './mhdata.js';
+import { loadAssetBytes, loadAssetImage } from './assets.js';
 import { clamp, lerp, smoothstep, TAU } from './util.js';
 import { GAIT, samp, gaitBody, FACES, FACE_KEYS, GETUP_BACK, GETUP_FRONT } from './motion.js';
 import { Ragdoll } from './ragdoll.js';
@@ -81,10 +83,94 @@ export function shapeSpec(desc) {
     face: desc.face ? desc.face.map((v) => Math.round(clamp(v, -1, 1) * 2) / 2) : undefined, // jaw, chin, cheeks, nose, brow
     hq: !!desc.hq, // playable characters: finer sculpt
     hqHead: !desc.hq && !!desc.pedHead, // pedestrians: a finer head only
+    mh: mhSpec(desc, g, elderly), // the MakeHuman head (charbuild.js mhHead)
   };
   spec.key = [spec.g, spec.S, spec.W, spec.elderly ? 'o' : 'y', spec.belly, spec.M, top, bottom, hair, hat, spec.beard, spec.topMat || '', bag ? 'b' : '', spec.glasses ? 'g' : '', spec.earrings ? 'e' : '', spec.watch ? 'w' : '',
     spec.cane ? 'c' : '', shoe, spec.socks ? 's' : '', spec.tucked ? 't' : '', spec.cop ? 'p' : '', spec.belt ? 'l' : '', spec.bust || '', spec.face ? spec.face.join(',') : ''].join('|') + (spec.slim ? '|sl' + spec.slim : '') + (spec.skirtShort ? '|ss' : '') + (spec.hq ? '|hq' : spec.hqHead ? '|hh' : '');
+  const m = spec.mh;
+  m.hair = mhHairFor(spec);
+  spec.key += `|mh${m.g},${m.age},${m.eth.join(',')},${m.wt},${m.mu},${m.seed},${m.brow},${m.lash},${m.hair || ''}`;
   return spec;
+}
+// MakeHuman's haircuts (cards with see-through ends) for the styles they suit; the rest stay sculpted or painted (a
+// mohawk, a braid, a bun; bald, cropped). A man's short hair under a hat is painted too (what shows below it)
+const MH_HAIR = {
+  m: { corto: 'short02', tupe: 'short01', peinado: 'short04', rizos: 'short01', afro: 'afro01', melena: 'bob02', media: 'bob02', largo: 'long01', coleta: 'ponytail01' },
+  f: { corto: 'short03', tupe: 'short03', peinado: 'short03', rizos: 'afro01', afro: 'afro01', melena: 'bob02', media: 'bob02', largo: 'long01', coleta: 'ponytail01' },
+};
+function mhHairFor(spec) {
+  const h = MH_HAIR[spec.g === 'f' ? 'f' : 'm'][spec.hair] || null;
+  if (h && ['gorra', 'boina', 'gorro', 'sombrero'].includes(spec.hat) && spec.g !== 'f' && !['long01', 'ponytail01', 'afro01'].includes(h)) return null;
+  return h;
+}
+
+// ---------------------------------------------------------------- the MakeHuman head for a person
+// sex, age, ancestry (from the descriptor, or read off the skin colour), build, and a seed from what makes the person
+// themselves (so the same one always has the same face); brows and lashes to suit
+const hashStr = (t) => { let h = 2166136261; for (let i = 0; i < t.length; i++) { h ^= t.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; };
+function skinTone(desc) { const c = new THREE.Color(desc.skinColor || SKIN[desc.skin ?? 1]); return 1 - (0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b) ** 0.45; }
+function ancestry(desc) { return desc.anc || (skinTone(desc) > 0.62 ? 'a' : 'c'); }
+function mhSpec(desc, g, elderly) {
+  const f = g === 'f';
+  const ageG = desc.ageGroup || (elderly ? 'mayor' : desc.age && desc.age < 27 ? 'joven' : 'adulto');
+  const age = desc.age ? clamp(desc.age, 18, 90) : ageG === 'mayor' ? 72 : ageG === 'joven' ? 24 : 40;
+  const seed = hashStr(JSON.stringify([desc.id || desc.name || '', desc.face || [], desc.height, desc.build, g, ageG, desc.hairStyle || '', desc.anc || '']));
+  const anc = ancestry(desc);
+  const eth = anc === 'a' ? [0.82, 0.03, 0.15] : anc === 's' ? [0.03, 0.75, 0.22] : [0.03, 0.05 + (seed % 7) * 0.012, 0.92 - (seed % 7) * 0.012]; // [african, asian, caucasian]
+  const wt = clamp(0.5 + ((desc.build || 1) - 1) * 1.6 + ((desc.belly || 1) - 1) * 1.2 + (elderly ? 0.08 : 0), 0.18, 0.95);
+  const mu = clamp(0.5 + (desc.muscle || 0) * 0.35, 0.3, 0.9);
+  const brows = f ? ['eyebrow001', 'eyebrow002', 'eyebrow005', 'eyebrow011', 'eyebrow012'] : ageG === 'mayor' ? ['eyebrow009', 'eyebrow010', 'eyebrow004'] : ['eyebrow003', 'eyebrow004', 'eyebrow008', 'eyebrow010', 'eyebrow012'];
+  return {
+    g: +(f ? 0.02 + (seed % 5) * 0.01 : 0.98 - (seed % 5) * 0.01).toFixed(2), age: Math.round(age / 3) * 3, eth: eth.map((v) => +v.toFixed(3)),
+    wt: +wt.toFixed(2), mu: +mu.toFixed(2), seed, amt: 0.55, face: desc.face ? desc.face.map((v) => Math.round(clamp(v, -1, 1) * 2) / 2) : null,
+    brow: desc.brow || brows[seed % brows.length], lash: f ? (seed % 3 ? 'eyelashes02' : 'eyelashes03') : 'eyelashes01',
+  };
+}
+// the head's textures: skin (one atlas per age, sex and ancestry), eyes, brows, lashes, the lips' mask
+// (until one has come: a skin shows its own mean colour, masks, brows and lashes nothing)
+const mhTexCache = new Map(), mhLoading = new Set();
+function mhTex(file, srgb = true, ph = '#c89a80') {
+  let t = mhTexCache.get(file);
+  if (t) return t;
+  const c = document.createElement('canvas'); c.width = c.height = 1;
+  if (srgb) { const x = c.getContext('2d'); x.fillStyle = ph; x.fillRect(0, 0, 1, 1); }
+  t = new THREE.Texture(c);
+  t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
+  t.anisotropy = 4;
+  t.needsUpdate = true;
+  // (dispose first: once drawn, the 1-pixel stand-in's storage is fixed in size and would not take the image)
+  const p = loadAssetImage('mh/' + file).then((im) => { if (im) { t.dispose(); t.image = im; t.needsUpdate = true; } }).finally(() => mhLoading.delete(p));
+  mhLoading.add(p);
+  mhTexCache.set(file, t);
+  return t;
+}
+// the small ones (eyes, brows, lashes, masks, haircuts) are fetched as soon as the heads are, so no face appears without them
+function mhPreload() {
+  for (const e of new Set(Object.values(MH_EYES).concat(['bluegreen']))) mhTex('eye_' + e + '.webp');
+  for (const b of ['eyebrow001', 'eyebrow002', 'eyebrow003', 'eyebrow004', 'eyebrow005', 'eyebrow008', 'eyebrow009', 'eyebrow010', 'eyebrow011', 'eyebrow012']) mhTex('brow_' + b + '.webp', false);
+  for (const l of ['eyelashes01', 'eyelashes02', 'eyelashes03']) mhTex('lash_' + l + '.webp', false);
+  mhTex('mask_face.png', false); mhTex('mask_hair.png', false);
+  for (const h of new Set(Object.values(MH_HAIR.m).concat(Object.values(MH_HAIR.f)))) mhTex('hair_' + h + '.webp', false); // (a haircut must not appear a moment late)
+}
+export function mhTexReady() { return Promise.all([...mhLoading]); }
+let MH_SKINS = null; // skin name → its own colour (assets/mh/skins.json)
+function mhSkinFor(desc) {
+  const f = desc.gender === 'f', anc = ancestry(desc), ageG = desc.ageGroup || (desc.elderly ? 'mayor' : desc.age && desc.age < 27 ? 'joven' : 'adulto');
+  const a = ageG === 'mayor' ? 'o' : ageG === 'adulto' ? 'm' : 'y', s = f ? 'f' : 'm';
+  const seed = hashStr(JSON.stringify([desc.id || desc.name || '', desc.face || [], desc.height]));
+  let name;
+  if (anc === 'a') name = a + s + '_a';
+  else if (anc === 's') name = 'y' + s + '_s';
+  else name = a === 'y' && seed % 2 ? 'y' + s + '_c2' : a + s + '_c';
+  if (MH_SKINS && !MH_SKINS[name]) name = f ? 'yf_c' : 'ym_c';
+  return name;
+}
+const MH_EYES = { '#4a2e1c': 'brown', '#3a2416': 'brown', '#2b1d14': 'brown', '#5b3d22': 'brownlight', '#6a5a30': 'brownlight', '#4d6b3a': 'green', '#4a6a8a': 'blue', '#6e8fb0': 'blue', '#7a8590': 'grey' };
+function mhEyeFor(desc) {
+  const e = (desc.eyes || EYES[desc.eye ?? 0] || '#4a2e1c').toLowerCase();
+  if (MH_EYES[e]) return MH_EYES[e];
+  const c = new THREE.Color(e);
+  return c.b > c.r * 1.05 ? 'blue' : c.g > c.r * 0.95 ? 'green' : c.r > 0.35 ? 'brownlight' : 'brown';
 }
 
 // garment ids the material's detail pass understands (seams, pockets, plackets...), hem heights and sleeve lengths
@@ -337,7 +423,7 @@ function faceMaps(B, g) {
 // aMat classes: 0 skin, 1 face (m), 2 face (f), 3 cotton, 4 knit, 5 denim, 6 twill, 7 leather, 8 rubber, 9 canvas,
 // 10 hair, 11 eye, 12 gloss, 13 metal, 14 nylon, 15 eyelid
 const CHAR_VS_HEAD = `
-attribute float aMat; attribute float aAO; attribute vec3 aFace; attribute float aReg;
+attribute float aMat; attribute float aAO; attribute vec3 aFace; attribute float aReg; attribute vec2 aUV; varying vec2 vUV2;
 flat varying float vReg;
 flat varying float vMat; varying float vAO; varying vec3 vFace; varying vec3 vRest; varying vec3 vHairT;
 uniform float uPart;`;
@@ -364,6 +450,91 @@ float gBumpH; float gRough; float gSheen; float gMetal; float gPX; vec3 gHairT; 
 // skin: diffuse light wraps past the terminator, red furthest (it scatters deepest under the skin), a little green, hardly any blue
 vec3 cSkinIrr(float nl) { vec3 w = vec3(0.46, 0.22, 0.15); return clamp((vec3(nl) + w) / (1.0 + w), 0.0, 1.0) * vec3(1.0, 0.985, 0.975); }
 float fa(float lambda) { return smoothstep(2.0 * gPX, 5.0 * gPX, lambda); } // fade detail smaller than a few pixels
+varying vec2 vUV2; uniform sampler2D uMHSkin; uniform sampler2D uMHEye; uniform sampler2D uMHBrow; uniform sampler2D uMHLash; uniform sampler2D uMHLips; uniform vec3 uMHMean;
+uniform sampler2D uMHHair; uniform vec4 uMHStyle; uniform sampler2D uMHHairTex; uniform float uNeckY; uniform vec3 uBrow;
+// hair painted on the face: stubble and the blue-grey of a shaven jaw, a buzz cut, beards, short hair under a cap, the
+// soft hairline under the hair shell (F: head-bone space; lipA keeps it off the lips)
+void cFaceHair(inout vec3 col, vec3 F, vec3 P, float lipA, float fem, float dots) {
+  float beardZone = smoothstep(0.042, 0.03, F.y + 0.25 * max(F.z - 0.02, 0.0)) * smoothstep(-0.05, -0.03, F.z) * smoothstep(-0.07, -0.035, F.y) * smoothstep(-0.03, 0.012, F.z) * (1.0 - lipA);
+  float scalp = smoothstep(0.118, 0.13, F.y - 0.33 * max(F.z, 0.0) + 0.1 * max(-F.z, 0.0)) * smoothstep(0.066, 0.06, abs(F.x));
+  col = mix(col, uHair * 0.7, beardZone * uStubble * (0.45 + 0.4 * dots));
+  col = mix(col, mix(col, vec3(0.3, 0.34, 0.36), 0.18), beardZone * uStubble * (1.0 - fem) * 0.5); // the blue-grey of a shaven jaw
+  col = mix(col, uHair * 0.75, scalp * uBuzz * (0.55 + 0.35 * dots));
+  if (uBeard > 0.5) { // beards: moustache, goatee, short or full, painted hair by hair with a ragged edge
+    int bst = int(uBeard + 0.5);
+    float mx = abs(F.x);
+    float lipTop = 0.0146 - 9.0 * mx * mx;
+    float must = (1.0 - smoothstep(0.85, 1.08, length(vec2(F.x / 0.028, (F.y - 0.0215) / 0.0092)))) * smoothstep(lipTop - 0.0012, lipTop + 0.0006, F.y) * smoothstep(0.06, 0.075, F.z);
+    float chinB = 1.0 - smoothstep(0.82, 1.06, length(vec2(F.x / 0.022, (F.y + 0.027) / 0.021)));
+    float soul = 1.0 - smoothstep(0.7, 1.05, length(vec2(F.x / 0.0065, (F.y + 0.0105) / 0.0068)));
+    vec2 cq = vec2(mx - mix(0.026, 0.018, clamp((0.004 - F.y) / 0.026, 0.0, 1.0)), 0.0);
+    float corner = (1.0 - smoothstep(0.003, 0.0055, abs(cq.x))) * step(-0.024, F.y) * step(F.y, 0.006);
+    float m = bst == 1 ? must : bst == 2 ? max(must, max(chinB, max(soul, corner))) : max(must, beardZone * (bst == 4 ? 1.15 : 1.0));
+    m *= (1.0 - lipA) * step(0.0, F.z + 0.03);
+    float rag = cNoise(P * 520.0) * 0.6 + cNoise(P * 140.0) * 0.4;
+    float dens = smoothstep(0.3, 0.8, m * 1.08 + (rag - 0.5) * 0.6);
+    // single hairs growing down and out (finer and sparser at the edges, the skin showing between them)
+    float strd = cNoise(vec3(F.x * 1300.0, F.y * 240.0, F.z * 1300.0)) * fa(0.0009);
+    float str2 = cNoise(vec3(F.x * 3400.0, F.y * 700.0, F.z * 3400.0)) * fa(0.0004);
+    float hairs = smoothstep(0.25, 0.75, strd * 0.65 + str2 * 0.35 + dens * 0.35);
+    vec3 bc = uHair * (0.62 + 0.5 * strd) + vec3(0.03, 0.022, 0.016) * str2; // tips catch a little warm light
+    float cover = dens * mix(0.45, bst == 4 ? 0.95 : bst == 3 ? 0.84 : 0.9, hairs) * (0.82 + 0.18 * smoothstep(0.5, 1.0, dens));
+    col = mix(col, bc, cover);
+    gBumpH += dens * ((strd - 0.5) * 0.0009 + (str2 - 0.5) * 0.0004 + (bst == 4 ? 0.0012 : 0.0006));
+    gRough = mix(gRough, 0.66, dens);
+  }
+  if (uCapHair > 0.5) { // short hair under a cap: above the ears and at the nape, thinning out at its edge
+    vec3 ea = vec3(abs(F.x) - 0.08, F.y - 0.066, F.z + 0.012);
+    float band = smoothstep(0.036, 0.058, F.y + 0.12 * max(-F.z - 0.03, 0.0)) * smoothstep(0.052, 0.03, F.z) * smoothstep(0.024, 0.034, length(ea));
+    float edge = cNoise(P * 900.0) * 0.5 + 0.5;
+    col = mix(col, uHair * 0.72, band * (0.75 + 0.2 * dots) * smoothstep(0.2, 0.6, band + edge * 0.35));
+  }
+  if (uHL.w > -5.0) { // soft hairline: sparse hair for a few millimetres below the edge of the hair shell
+    float sd = dot(uHL.xyz, F) - uHL.w;
+    float hlA = (1.0 - smoothstep(0.0, 0.0065, sd)) * step(-0.003, sd) * (smoothstep(0.035, 0.055, F.z) + smoothstep(-0.06, -0.08, F.z)); // forehead and nape only, not beside the ears
+    col = mix(col, uHair * 0.78, hlA * 0.55 * (0.4 + 0.6 * dots));
+  }
+}
+// hair painted on the MakeHuman head from its atlas masks (hm: the scalp of a man, of a woman, a full beard, a goatee
+// with its moustache), F its base-mesh position (metres, 0.7 m up): the scalp under every haircut (so the hair's edge
+// is a real hairline, not the shell's cut), a buzz cut, the fringe of a bald head, stubble and beards.
+// uMHStyle: x how thick the scalp's hair, y bald on top, z cropped (the skin shows between the hairs), w a man's
+// hairline as full as a woman's (the young; the old keep the receding one). Returns how much hair covers the skin
+float cMHHair(inout vec3 col, vec3 skinC, vec3 F, vec3 P, float lipA, float fem, vec4 hm) {
+  float rag = cNoise(P * 520.0) * 0.6 + cNoise(P * 140.0) * 0.4, fine = cNoise(P * 1100.0);
+  float strd = cNoise(vec3(F.x * 1300.0, F.y * 240.0, F.z * 1300.0)) * fa(0.0009); // single hairs, growing down
+  float str2 = cNoise(vec3(F.x * 3400.0, F.y * 700.0, F.z * 3400.0)) * fa(0.0004);
+  float dots = mix(0.5, cNoise(P * 1400.0), fa(0.0008));
+  float sc = fem > 0.5 ? hm.g : mix(hm.r, max(hm.r, hm.g * 0.93), uMHStyle.w), cov = 0.0;
+  if (uMHStyle.y > 0.5) { // bald on top: a fringe round the sides and the back, bare (and a little shiny) above it
+    float crown = smoothstep(0.066, 0.094, F.y + 0.3 * max(F.z - 0.02, 0.0) + (rag - 0.5) * 0.014 + (fine - 0.5) * 0.004);
+    col = mix(col, skinC * (0.96 + 0.08 * cNoise(P * 60.0)), crown * max(hm.r, hm.g));
+    gRough = mix(gRough, 0.36, crown); sc *= 1.0 - crown;
+  }
+  // (the edge: a few millimetres where single hairs thin out, not a line)
+  float sd = smoothstep(0.12, 0.82, sc + (fine - 0.5) * 0.3 * fa(0.002) + (rag - 0.5) * 0.22) * uMHStyle.x;
+  vec3 hc = uHair * (0.58 + 0.5 * strd) + vec3(0.02, 0.015, 0.01) * str2;
+  float sk = sd * mix(0.95, 0.5 + 0.38 * dots, uMHStyle.z) * mix(0.55 + 0.45 * strd, 1.0, smoothstep(0.45, 0.85, sc));
+  col = mix(col, hc, sk); cov = max(cov, sk);
+  gRough = mix(gRough, 0.7, sd); gBumpH += sd * (strd - 0.5) * 0.0004;
+  // stubble, and the blue-grey of a shaven jaw
+  float bz = max(hm.b, hm.a) * (1.0 - lipA), bzs = bz * uStubble * smoothstep(0.15, 0.55, bz + (rag - 0.5) * 0.3);
+  col = mix(col, uBrow * 0.7, bzs * (0.35 + 0.45 * dots));
+  col = mix(col, mix(col, vec3(0.3, 0.34, 0.36), 0.2), bzs * (1.0 - fem) * 0.5);
+  if (uBeard > 0.5) { // moustache (the upper part of the goatee's mask), goatee, short or full: hair by hair, ragged at the edge
+    int bst = int(uBeard + 0.5);
+    float m = (bst == 1 ? hm.a * smoothstep(-0.044, -0.037, F.y) : bst == 2 ? hm.a : max(hm.b, hm.a)) * (1.0 - lipA);
+    // thick on the chin and the lip, thinning out up the cheeks, the edge ragged and sparse
+    float dens = smoothstep(0.18, 0.9, m + (rag - 0.5) * 0.42 + (fine - 0.5) * 0.25 * fa(0.002));
+    float hairs = smoothstep(0.25, 0.75, strd * 0.65 + str2 * 0.35 + dens * 0.35);
+    vec3 bc = uBrow * (0.5 + 0.55 * strd) + vec3(0.03, 0.022, 0.016) * str2;
+    float cover = dens * mix(0.4, bst == 4 ? 0.96 : bst == 3 ? 0.86 : 0.92, hairs) * (0.78 + 0.22 * smoothstep(0.5, 1.0, dens));
+    col = mix(col, bc, cover); cov = max(cov, cover);
+    gBumpH += dens * ((strd - 0.5) * 0.0009 + (str2 - 0.5) * 0.0004 + (bst == 4 ? 0.0012 : 0.0006));
+    gRough = mix(gRough, 0.66, dens);
+  }
+  return cov;
+}
 `;
 // garment detail in the rest pose (metres): seams and stitching, pockets, plackets and buttons, zips, patterns,
 // knitted rib, and the creases that appear at the knees, the backs of the knees, the ankles and the elbows
@@ -559,13 +730,14 @@ function makeCharMaterial(uniforms) {
       .replace('#include <common>', '#include <common>' + CHAR_VS_HEAD)
       .replace('#include <color_vertex>', `#include <color_vertex>
   vColor.rgb = pow(vColor.rgb, vec3(2.2));
-  vMat = aMat; vAO = aAO; vFace = aFace * 0.3; vRest = position; vReg = aReg;`)
+  vMat = aMat; vAO = aAO; vFace = aFace * 0.3; vRest = position; vReg = aReg; vUV2 = aUV;`)
       .replace('#include <skinnormal_vertex>', `#include <skinnormal_vertex>
   { // hair: the direction the strands run (away from the crown, down the jaw for a beard), skinned, in view space
     vec3 F = aFace * 0.3, d = F - vec3(uPart, 0.188, -0.022);
     float l = max(length(d.xz), 1e-4);
     vec3 g = vec3(d.x / l, d.y < 0.0 ? -0.9 : 0.0, d.z / l);
     if (F.y < 0.05 && F.y > -0.07 && abs(F.x) < 0.075 && F.z > 0.02 - 0.3 * min(F.y, 0.0)) g = vec3(0.0, -1.0, 0.25);
+    if (aMat > 21.5) { vec3 dm = F - vec3(0.0, 0.142, 0.01); g = normalize(vec3(dm.x, min(dm.y, 0.0) * 1.2 - 0.015, dm.z)); }
     #ifdef USE_SKINNING
       g = (skinMatrix * vec4(g, 0.0)).xyz;
     #endif
@@ -597,46 +769,8 @@ function makeCharMaterial(uniforms) {
       col = mix(col, uLip * (0.94 + 0.08 * n), lipA * (0.84 + 0.1 * fem));
       col = mix(col, uHair * 0.78, pa.g * 0.93);
       col *= 1.0 - pa.b * vec3(0.46, 0.55, 0.57);
-      float beardZone = smoothstep(0.042, 0.03, F.y + 0.25 * max(F.z - 0.02, 0.0)) * smoothstep(-0.05, -0.03, F.z) * smoothstep(-0.07, -0.035, F.y) * smoothstep(-0.03, 0.012, F.z) * (1.0 - lipA);
-      float scalp = smoothstep(0.118, 0.13, F.y - 0.33 * max(F.z, 0.0) + 0.1 * max(-F.z, 0.0)) * smoothstep(0.066, 0.06, abs(F.x));
       float dots = mix(0.5, cNoise(P * 1400.0), fa(0.0008));
-      col = mix(col, uHair * 0.7, beardZone * uStubble * (0.45 + 0.4 * dots));
-      col = mix(col, mix(col, vec3(0.3, 0.34, 0.36), 0.18), beardZone * uStubble * (1.0 - fem) * 0.5); // the blue-grey of a shaven jaw
-      col = mix(col, uHair * 0.75, scalp * uBuzz * (0.55 + 0.35 * dots));
-      if (uBeard > 0.5) { // beards: moustache, goatee, short or full, painted hair by hair with a ragged edge
-        int bst = int(uBeard + 0.5);
-        float mx = abs(F.x);
-        float lipTop = 0.0146 - 9.0 * mx * mx;
-        float must = (1.0 - smoothstep(0.85, 1.08, length(vec2(F.x / 0.028, (F.y - 0.0215) / 0.0092)))) * smoothstep(lipTop - 0.0012, lipTop + 0.0006, F.y) * smoothstep(0.06, 0.075, F.z);
-        float chinB = 1.0 - smoothstep(0.82, 1.06, length(vec2(F.x / 0.022, (F.y + 0.027) / 0.021)));
-        float soul = 1.0 - smoothstep(0.7, 1.05, length(vec2(F.x / 0.0065, (F.y + 0.0105) / 0.0068)));
-        vec2 cq = vec2(mx - mix(0.026, 0.018, clamp((0.004 - F.y) / 0.026, 0.0, 1.0)), 0.0);
-        float corner = (1.0 - smoothstep(0.003, 0.0055, abs(cq.x))) * step(-0.024, F.y) * step(F.y, 0.006);
-        float m = bst == 1 ? must : bst == 2 ? max(must, max(chinB, max(soul, corner))) : max(must, beardZone * (bst == 4 ? 1.15 : 1.0));
-        m *= (1.0 - lipA) * step(0.0, F.z + 0.03);
-        float rag = cNoise(P * 520.0) * 0.6 + cNoise(P * 140.0) * 0.4;
-        float dens = smoothstep(0.3, 0.8, m * 1.08 + (rag - 0.5) * 0.6);
-        // single hairs growing down and out (finer and sparser at the edges, the skin showing between them)
-        float strd = cNoise(vec3(F.x * 1300.0, F.y * 240.0, F.z * 1300.0)) * fa(0.0009);
-        float str2 = cNoise(vec3(F.x * 3400.0, F.y * 700.0, F.z * 3400.0)) * fa(0.0004);
-        float hairs = smoothstep(0.25, 0.75, strd * 0.65 + str2 * 0.35 + dens * 0.35);
-        vec3 bc = uHair * (0.62 + 0.5 * strd) + vec3(0.03, 0.022, 0.016) * str2; // tips catch a little warm light
-        float cover = dens * mix(0.45, bst == 4 ? 0.95 : bst == 3 ? 0.84 : 0.9, hairs) * (0.82 + 0.18 * smoothstep(0.5, 1.0, dens));
-        col = mix(col, bc, cover);
-        gBumpH += dens * ((strd - 0.5) * 0.0009 + (str2 - 0.5) * 0.0004 + (bst == 4 ? 0.0012 : 0.0006));
-        gRough = mix(gRough, 0.66, dens);
-      }
-      if (uCapHair > 0.5) { // short hair under a cap: above the ears and at the nape, thinning out at its edge
-        vec3 ea = vec3(abs(F.x) - 0.08, F.y - 0.066, F.z + 0.012);
-        float band = smoothstep(0.036, 0.058, F.y + 0.12 * max(-F.z - 0.03, 0.0)) * smoothstep(0.052, 0.03, F.z) * smoothstep(0.024, 0.034, length(ea));
-        float edge = cNoise(P * 900.0) * 0.5 + 0.5;
-        col = mix(col, uHair * 0.72, band * (0.75 + 0.2 * dots) * smoothstep(0.2, 0.6, band + edge * 0.35));
-      }
-      if (uHL.w > -5.0) { // soft hairline: sparse hair for a few millimetres below the edge of the hair shell
-        float sd = dot(uHL.xyz, F) - uHL.w;
-        float hlA = (1.0 - smoothstep(0.0, 0.0065, sd)) * step(-0.003, sd) * (smoothstep(0.035, 0.055, F.z) + smoothstep(-0.06, -0.08, F.z)); // forehead and nape only, not beside the ears
-        col = mix(col, uHair * 0.78, hlA * 0.55 * (0.4 + 0.6 * dots));
-      }
+      cFaceHair(col, F, P, lipA, fem, dots);
       // blood near the surface: cheeks, the nose, the ears and the chin a little rosier; the eye sockets a touch cooler
       float cheek = exp(-pow((abs(F.x) - 0.042) / 0.017, 2.0) - pow((F.y - 0.046) / 0.016, 2.0)) * smoothstep(0.0, 0.03, F.z);
       col = mix(col, col * vec3(1.07, 0.88, 0.86), cheek * (0.26 + 0.3 * uMakeup * fem));
@@ -753,6 +887,43 @@ function makeCharMaterial(uniforms) {
     diffuseColor.rgb *= 0.9;
     gRough = 0.45;
   }
+  else if (mc == 17) { // the MakeHuman head: its photographed skin (pores, lips, lids, fine lines), tinted to the person's own colour
+    vec3 F = vFace; float fem = uFem;
+    vec3 col = texture2D(uMHSkin, vUV2).rgb * clamp(diffuseColor.rgb / max(uMHMean, vec3(0.02)), vec3(0.0), vec3(3.0));
+    vec4 fm = texture2D(uMHLips, vUV2); float lipA = fm.r; // (the lips; g: a goatee's hair)
+    col = mix(col, col * mix(vec3(1.0), uLip / max(diffuseColor.rgb, vec3(0.02)), 0.6), lipA * uMakeup * fem * 0.6); // a touch of lipstick
+    float n = cNoise(P * 300.0) * fa(0.0035), n2 = cNoise(P * 900.0) * fa(0.0012);
+    // down the neck the photograph gives way to the plain skin of the sculpted neck it is stitched to (no seam)
+    float nk = smoothstep(uNeckY + 0.055, uNeckY + 0.006, P.y);
+    col = mix(col, diffuseColor.rgb * (0.975 + 0.05 * n), nk);
+    gSkin = 1.0; gSheen = 0.3;
+    gRough = mix(0.5, 0.34, lipA) - 0.07 * smoothstep(0.148, 0.163, F.z) * (1.0 - smoothstep(0.012, 0.026, abs(F.x))); // lips and the tip of the nose shine a little
+    gBumpH = (n - 0.5) * 0.00012 + (n2 - 0.5) * 0.00005; // pores
+    float hcov = cMHHair(col, diffuseColor.rgb, F, P, lipA, fem, vec4(texture2D(uMHHair, vUV2).rgb, fm.g));
+    gSheen *= 1.0 - hcov; if (hcov > 0.55) gSkin = 0.0; // (hair painted on it does not glow like skin)
+    col *= 1.0 - 0.68 * fm.b; gSheen *= 1.0 - fm.b; gRough = mix(gRough, 0.3, fm.b); // the inside of the mouth, in its own shade
+    diffuseColor.rgb = col;
+  }
+  else if (mc == 18) { diffuseColor.rgb = texture2D(uMHEye, vUV2).rgb; gRough = 0.06; } // the eye: its painted iris and white, wet
+  else if (mc == 19 || mc == 20) { // eyebrows and eyelashes: painted hairs on little cards; their alpha becomes the pixel's
+    // coverage (the frame is multisampled), so the hairs have soft, fine edges and no sorting is needed
+    vec4 t = mc == 19 ? texture2D(uMHBrow, vUV2) : texture2D(uMHLash, vUV2);
+    float a = t.a * (mc == 19 ? 0.92 : 1.0);
+    if (a < 0.04) discard;
+    diffuseColor.a = clamp((a - 0.04) * 1.3, 0.0, 1.0);
+    diffuseColor.rgb = (mc == 19 ? uBrow * 0.72 : vec3(0.022, 0.018, 0.016)) * (0.7 + 0.6 * dot(t.rgb, vec3(0.333)));
+    gRough = mc == 19 ? 0.62 : 0.45;
+  }
+  else if (mc == 21) { diffuseColor.rgb = vec3(0.8, 0.76, 0.68) * 0.62; gRough = 0.3; } // teeth (in the mouth's shade)
+  else if (mc == 22) { // hair (MakeHuman's cards): painted strands in grey, tinted to the person's colour; alpha → coverage
+    vec4 t = texture2D(uMHHairTex, vUV2);
+    if (t.a < 0.05) discard;
+    diffuseColor.a = clamp((t.a - 0.05) * 1.35, 0.0, 1.0);
+    float l = t.r;
+    diffuseColor.rgb *= (0.28 + 1.44 * l) * (0.94 + 0.12 * cNoise(P * 40.0));
+    gRough = 0.46 + 0.2 * (1.0 - l); gSheen = 0.45; gBumpH = (l - 0.5) * 0.0004;
+    gHairT = normalize(vHairT); gHairK = 1.0 - 0.6 * uCurl;
+  }
   else if (mc == 12) { gRough = 0.12; } // glossy plastic / lenses
   else if (mc == 13) { gRough = 0.3; gMetal = 1.0; } // metal
   else if (mc == 14) { // nylon
@@ -768,7 +939,7 @@ function makeCharMaterial(uniforms) {
     else if (rg == 7 || rg == 8 || rg == 10) garmentShoe(col, bh, P, rg);
     diffuseColor.rgb = col * (1.0 - dk * 0.5 * gLod2); gBumpH += bh * gLod2;
   }
-  if (uZombie > 0.5 && mc != 10 && mc != 11) { // zombies: dried blood, dirt and bruises
+  if (uZombie > 0.5 && mc != 10 && mc != 11 && mc < 18) { // zombies: dried blood, dirt and bruises (not on eyes, hair, teeth)
     float bl = smoothstep(0.6, 0.72, cNoise(P * 13.0 + 3.7)) * (0.6 + 0.4 * cNoise(P * 60.0));
     float dirt = smoothstep(0.45, 0.8, cNoise(P * 5.0 + 9.1));
     diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.55, 0.5, 0.42), dirt * 0.6);
@@ -786,12 +957,12 @@ metalnessFactor = gMetal;`)
       .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
 normal = cBump(normal, gBumpH, faceDirection);`)
       .replace('#include <lights_physical_fragment>', `#include <lights_physical_fragment>
-material.sheenColor = mix(vec3(0.0), (int(vMat + 0.5) <= 2 || int(vMat + 0.5) == 15) ? vec3(0.32, 0.12, 0.08) : diffuseColor.rgb * 0.6 + 0.06, clamp(gSheen, 0.0, 1.0));
-material.sheenRoughness = (int(vMat + 0.5) <= 2 || int(vMat + 0.5) == 15) ? 0.5 : 0.75;
+material.sheenColor = mix(vec3(0.0), (int(vMat + 0.5) <= 2 || int(vMat + 0.5) == 15 || int(vMat + 0.5) == 17) ? vec3(0.32, 0.12, 0.08) : diffuseColor.rgb * 0.6 + 0.06, clamp(gSheen, 0.0, 1.0));
+material.sheenRoughness = (int(vMat + 0.5) <= 2 || int(vMat + 0.5) == 15 || int(vMat + 0.5) == 17) ? 0.5 : 0.75;
 { int mcs = int(vMat + 0.5);
-  float spk = (mcs <= 2 || mcs == 15) ? 0.7 : (mcs >= 3 && mcs <= 6) ? 0.4 : (mcs == 11 || mcs == 12) ? 1.6 : mcs == 10 ? 0.22 : mcs == 16 ? 0.3 : 1.0;
+  float spk = (mcs <= 2 || mcs == 15 || mcs == 17) ? 0.7 : (mcs >= 3 && mcs <= 6) ? 0.4 : (mcs == 11 || mcs == 12 || mcs == 18) ? 1.6 : (mcs == 10 || mcs == 19 || mcs == 22) ? 0.22 : (mcs == 16 || mcs == 20) ? 0.3 : 1.0;
   material.specularColor *= spk;
-  material.specularF90 *= mcs == 10 ? 0.22 : (mcs >= 3 && mcs <= 9) ? 0.55 : mcs == 16 ? 0.3 : 1.0; }`)
+  material.specularF90 *= (mcs == 10 || mcs == 19 || mcs == 22) ? 0.22 : (mcs >= 3 && mcs <= 9) ? 0.55 : (mcs == 16 || mcs == 20) ? 0.3 : 1.0; }`)
       .replace('#include <lights_fragment_end>', `#include <lights_fragment_end>
 #if NUM_DIR_LIGHTS > 0
 if (gHairK > 0.0) {
@@ -806,11 +977,12 @@ if (gHairK > 0.0) {
 }
 #endif`)
       .replace('#include <aomap_fragment>', `#include <aomap_fragment>
-{ int mca = int(vMat + 0.5); float ao = (mca <= 2 || mca == 15) ? mix(vAO, 1.0, 0.3) : vAO; // skin: lighter creases
+{ int mca = int(vMat + 0.5); float ao = (mca <= 2 || mca == 15 || mca == 17) ? mix(vAO, 1.0, 0.3) : mca == 21 ? 0.4 : vAO; // skin: lighter creases; the teeth, inside
   reflectedLight.indirectDiffuse *= ao; reflectedLight.indirectSpecular *= ao;
   reflectedLight.directDiffuse *= mix(1.0, ao, 0.45); reflectedLight.directSpecular *= mix(1.0, ao, 0.6); }`);
   };
-  m.customProgramCacheKey = () => 'char11';
+  m.alphaToCoverage = true; // (brows and lashes; every other class writes alpha 1)
+  m.customProgramCacheKey = () => 'char14';
   return m;
 }
 
@@ -839,11 +1011,19 @@ function idbPut(db, key, val) {
 }
 
 // ---------------------------------------------------------------- factory: builds shapes in workers, hands out characters
+// the MakeHuman data: gunzipped from assets/mh/head.bin.gz (embedded in the published page), and the skins' own colours
+async function loadMHData() {
+  const [gz, js] = await Promise.all([loadAssetBytes('mh/head.bin.gz'), loadAssetBytes('mh/skins.json')]);
+  if (js) try { MH_SKINS = JSON.parse(new TextDecoder().decode(js)); } catch (e) { MH_SKINS = null; }
+  if (!gz || typeof DecompressionStream === 'undefined') return null;
+  const ds = new Blob([gz]).stream().pipeThrough(new DecompressionStream('gzip'));
+  return new Uint8Array(await new Response(ds).arrayBuffer());
+}
 export class CharacterFactory {
   constructor(opts = {}) {
     this.q = opts.q || 1;        // mesh resolution scale (coarser on low-end devices)
     this.lodNear = opts.lodNear || 13;
-    this.B = charBuilderMain(); // main-thread copy: rig() and fallback builds
+    this.B = charBuilderMain(mhLib); // main-thread copy: rig() and fallback builds
     this.shapes = new Map();    // key → shape (THREE attributes, bone inverses)
     this.pending = new Map();   // key → { spec, cbs: [], prio }
     this.queue = [];
@@ -856,7 +1036,7 @@ export class CharacterFactory {
     this.version = this.B.VERSION;
     this.dbReady = opts.noCache ? Promise.resolve(null) : idbOpen().then((db) => (this.db = db)); // noCache: dev bench, always rebuild
     try {
-      const src = `(${charBuilderMain.toString()})();`;
+      const src = `(${charBuilderMain.toString()})(${mhLib.toString()});`;
       const url = URL.createObjectURL(new Blob([src], { type: 'text/javascript' }));
       const n = Math.max(1, Math.min(3, (navigator.hardwareConcurrency || 4) - 1));
       for (let i = 0; i < n; i++) {
@@ -867,6 +1047,17 @@ export class CharacterFactory {
         this.workers.push(w);
       }
     } catch (e) { console.warn('workers unavailable, building characters on the main thread', e); }
+    // the MakeHuman heads (a few hundred KB, unzipped once): nothing is built before it has come — a shape made without
+    // it must not be taken for (and cached as) one made with it
+    this.mhReady = false; this.mhOn = false;
+    loadMHData().then((buf) => {
+      if (buf) {
+        this.mhBuf = buf;
+        this.mhOn = this.B.setMH(buf);
+        mhPreload();
+        for (const w of this.workers) w.postMessage({ mh: buf.slice().buffer });
+      }
+    }).catch((e) => console.warn('MakeHuman data unavailable', e)).finally(() => { this.mhReady = true; this.pump(); });
   }
   // queue shapes for building (highest priority first)
   spec(desc) { const s = shapeSpec(desc); if (this.q !== 1) { s.q = this.q; s.key += '|q' + this.q; } return s; }
@@ -888,13 +1079,14 @@ export class CharacterFactory {
     if (cb) p.cbs.push(cb);
   }
   pump() {
+    if (!this.mhReady) return;
     this.queue.sort((a, b) => b.prio - a.prio);
     const free = this.workers.filter((w) => !w.job && !w.dead);
     if (!this.workers.length || this.workers.every((w) => w.dead)) {
       // main-thread fallback, one shape per call so the page stays responsive
       const p = this.queue.shift();
       if (!p) return;
-      setTimeout(() => { const r = this.B.build({ ...p.spec, lods: undefined }); this.finish(p.spec.key, r, true); this.pump(); }, 0);
+      setTimeout(() => { const r = this.B.build({ ...p.spec, lods: undefined }); this.finish(p.spec.key, r, !(r.mhWanted && !r.mh)); this.pump(); }, 0);
       return;
     }
     for (const w of free) {
@@ -910,7 +1102,7 @@ export class CharacterFactory {
       console.warn('character build failed', data.id, data.error);
       const p = this.pending.get(data.id);
       if (p) { try { this.finish(data.id, this.B.build(p.spec), true); } catch (e) { console.error(e); } }
-    } else this.finish(data.id, data.r, true);
+    } else this.finish(data.id, data.r, !(data.r.lods && data.r.mhWanted && !data.r.mh));
     this.pump();
   }
   finish(key, r, store) {
@@ -932,6 +1124,7 @@ export class CharacterFactory {
         aAO: new THREE.BufferAttribute(l.ao, 1, true),
         aFace: new THREE.BufferAttribute(l.face, 3, true),
         aReg: new THREE.BufferAttribute(l.reg, 1),
+        aUV: new THREE.BufferAttribute(l.uv || new Uint16Array(l.nv * 2), 2, true),
       };
       const index = new THREE.BufferAttribute(l.index, 1);
       const bs = new THREE.Sphere();
@@ -951,7 +1144,7 @@ export class CharacterFactory {
     }
     root.updateMatrixWorld(true);
     const inverses = order.map((o) => o.matrixWorld.clone().invert());
-    return { key: r.key, lods, bones: r.bones, inverses };
+    return { key: r.key, lods, bones: r.bones, inverses, neckY: r.neckY ?? null };
   }
   // per-character geometry: shared attributes + its own colours
   geometry(shape, desc) {
@@ -983,10 +1176,28 @@ export class CharacterFactory {
       uPrint: { value: kittyTexture() }, uPrintOn: { value: 0 }, uPrintC: { value: new THREE.Vector3() }, uPrintS: { value: new THREE.Vector2(1, 1) }, uZombie: { value: 0 },
       uFaceA: { value: null }, uFaceB: { value: null }, uFem: { value: 0 }, uHL: { value: new THREE.Vector4(0, 0, 0, -10) }, uPart: { value: 0 }, uCurl: { value: 0 }, uCapHair: { value: 0 }, uBeard: { value: 0 }, uHairEnd: { value: -10 },
       uBody: { value: new THREE.Vector4(1, 1, 0, 0) }, uBend: { value: new THREE.Vector4() }, uGarm: { value: new THREE.Vector4() }, uCut: { value: new THREE.Vector4(0.925, 0.13, 0, 0.47) },
-      uTop2: { value: new THREE.Color() }, uBot2: { value: new THREE.Color() }, uThread: { value: new THREE.Color() }, uShoe2: { value: new THREE.Color() } });
+      uTop2: { value: new THREE.Color() }, uBot2: { value: new THREE.Color() }, uThread: { value: new THREE.Color() }, uShoe2: { value: new THREE.Color() },
+      uMHSkin: { value: null }, uMHEye: { value: null }, uMHBrow: { value: null }, uMHLash: { value: null }, uMHLips: { value: null }, uMHMean: { value: new THREE.Vector3(0.6, 0.35, 0.25) },
+      uMHHair: { value: null }, uMHStyle: { value: new THREE.Vector4(0.94, 0, 0, 0) }, uMHHairTex: { value: null }, uNeckY: { value: -10 }, uBrow: { value: new THREE.Color() } });
     const u = m.userData.u;
+    // the MakeHuman head's textures: the skin for this age, sex and ancestry (and its own colour, to tint it to the
+    // person's), their eyes' colour, the brows and lashes the shape was fitted with
+    {
+      const sk = mhSkinFor(desc), mean = (MH_SKINS && MH_SKINS[sk]) || [0.8, 0.6, 0.5], sp0 = shapeSpec(desc).mh;
+      u.uMHSkin.value = mhTex('skin_' + sk + '.webp', true, `rgb(${mean.map((c) => Math.round(c * 255)).join(',')})`); u.uMHEye.value = mhTex('eye_' + mhEyeFor(desc) + '.webp');
+      u.uMHBrow.value = mhTex('brow_' + sp0.brow + '.webp', false); u.uMHLash.value = mhTex('lash_' + sp0.lash + '.webp', false);
+      u.uMHLips.value = mhTex('mask_face.png', false); u.uMHHair.value = mhTex('mask_hair.png', false);
+      u.uMHHairTex.value = sp0.hair ? mhTex('hair_' + sp0.hair + '.webp', false) : u.uMHLips.value;
+      u.uMHMean.value.set(Math.pow(mean[0], 2.2), Math.pow(mean[1], 2.2), Math.pow(mean[2], 2.2));
+    }
     const skin = new THREE.Color(desc.skinColor || SKIN[desc.skin ?? 1]);
     u.uHair.value.set(desc.hairColor || HAIR[desc.hair ?? 0]);
+    { // brows, beard and stubble: the hair's colour if it could be natural; under a dyed one (blue, violet, pink,
+      // green…) a dark brown
+      const hsl = u.uHair.value.getHSL({});
+      const dyed = hsl.s > 0.3 && hsl.l > 0.08 && (hsl.h < 0.01 || hsl.h > 0.15);
+      u.uBrow.value.copy(dyed ? new THREE.Color('#2b1d14') : u.uHair.value);
+    }
     u.uZombie.value = desc.zombie ? 1 : 0;
     const f = desc.gender === 'f';
     u.uLip.value.copy(skin).lerp(new THREE.Color(f ? (desc.lips || '#b65a5e') : '#95524e'), f ? 0.48 : 0.4);
@@ -1002,6 +1213,10 @@ export class CharacterFactory {
     u.uPart.value = desc.hairStyle === 'peinado' ? 0.03 : desc.hairStyle === 'melena' || desc.hairStyle === 'media' ? -0.012 : 0; // where the hair parts
     u.uCurl.value = desc.hairStyle === 'rizos' || desc.hairStyle === 'afro' ? 1 : 0;
     u.uAge.value = desc.elderly ? 1 : 0;
+    { // the MakeHuman scalp: thick under a haircut, cropped (rapado, a mohawk's sides, what shows under a cap), bald on top
+      const hs0 = desc.hairStyle || 'corto', crop = hs0 === 'rapado' || hs0 === 'cresta' || u.uCapHair.value > 0.5;
+      u.uMHStyle.value.set(hs0 === 'calvo' ? 0.9 : crop ? 0.85 : 0.94, hs0 === 'calvo' ? 1 : 0, crop || hs0 === 'calvo' ? 1 : 0, desc.elderly ? 0 : 1);
+    }
     const maps = faceMaps(this.B, f ? 'f' : 'm');
     u.uFaceA.value = maps.A; u.uFaceB.value = maps.B; u.uFem.value = f ? 1 : 0;
     // hairline plane of the hair shell (charbuild.js hairLayer) for the soft edge painted on the forehead
@@ -1347,9 +1562,12 @@ export class Character {
   attach(shape) {
     if (this.disposed) return;
     this.shape = shape;
+    // the bones' rest offsets as the shape was built (a MakeHuman head puts the eyes, lids and brows over its own eyeballs)
+    for (const b of shape.bones) { const o = this.bones[b.name]; if (o) { o.position.fromArray(b.off); if (this.rest[b.name]) this.rest[b.name].copy(o.position); } }
     this.skeleton = new THREE.Skeleton(this.boneList, shape.inverses);
     this.geos = this.factory.geometry(shape, this.desc);
     this.mat = this.statue ? this.factory.bronze : this.factory.material(this.desc);
+    if (!this.statue) this.mat.userData.u.uNeckY.value = shape.neckY ?? -10; // (where the MakeHuman head meets the sculpted neck)
     const ident = new THREE.Matrix4();
     this.meshes = this.geos.map((g, i) => {
       const m = new THREE.SkinnedMesh(g, this.mat);
@@ -1929,7 +2147,7 @@ export class Character {
     const ta = this.talkAmt, syl = Math.max(0, Math.sin(this.t * 13.0) * Math.sin(this.t * 4.7 + 1.3));
     const round = ta * Math.max(0, Math.sin(this.t * 5.3 + this.seed)) * 0.0022;
     const stress = ta * Math.pow(Math.max(0, Math.sin(this.t * 1.9 + this.seed * 3)), 6);
-    R('jaw', 0.015 + F.jaw + ta * (0.04 + 0.07 * syl));
+    R('jaw', (this.shape && this.shape.neckY != null ? 0.004 : 0.015) + F.jaw + ta * (0.04 + 0.07 * syl)); // (a MakeHuman mouth rests closed)
     const hk = this.headK;
     const lift = (F.lift + stress * 0.0026) * hk, knit = F.knit - stress * 0.05;
     O('browL', 0, lift, 0); O('browR', 0, lift, 0); R('browL', 0, 0, knit); R('browR', 0, 0, -knit);

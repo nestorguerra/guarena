@@ -16,7 +16,9 @@ async function shot(name, pos, look, fov, w, h) {
 export async function build(desc) {
   const g = G();
   const CB = await import('/src/charbuild.js?x=' + Date.now() + Math.random());
-  const B = CB.charBuilderMain();
+  const { mhLib } = await import('/src/mhdata.js');
+  const B = CB.charBuilderMain(mhLib);
+  if (g.chars.mhBuf) B.setMH(g.chars.mhBuf);
   const spec = g.chars.spec(desc); spec.key = spec.key + '|f' + Date.now() + Math.random();
   const r = B.build(spec);
   g.chars.shapes.set(spec.key, g.chars.makeShape(r));
@@ -33,6 +35,7 @@ export async function shoot(list, tag = '', opts = {}) {
   for (let k = 0; k < list.length; k++) {
     const desc = typeof list[k] === 'number' ? C.PLAYER_PRESETS[list[k]] : list[k];
     const ch = await build({ ...desc, hq: opts.hq ?? true });
+    if (C.mhTexReady) await C.mhTexReady(); // (its skin, eyes, brows: no shot with a placeholder)
     ch.object.position.set(SPOT.x, 0, SPOT.z); ch.object.rotation.y = 0; g.scene.add(ch.object);
     for (let f = 0; f < 40; f++) ch.update(1 / 30, 0, opts.face ? { forceFace: opts.face } : {});
     ch.setDistance(1, true); ch.object.updateMatrixWorld(true);
@@ -43,6 +46,8 @@ export async function shoot(list, tag = '', opts = {}) {
       if (v === 'q') await shot(`fc_${k}${tag}_q`, [hp.x + Math.sin(0.5) * 0.4, ey, lz + Math.cos(0.5) * 0.4], [hp.x, ey - 0.01, lz], 30, 700, 700);
       if (v === 'f') await shot(`fc_${k}${tag}_f`, [hp.x, ey, lz + 0.36], [hp.x, ey - 0.012, lz], 30, 700, 700);
       if (v === 'p') await shot(`fc_${k}${tag}_p`, [hp.x + 0.42, ey, lz - 0.02], [hp.x, ey - 0.01, lz - 0.02], 30, 700, 700);
+      if (v === 'h') await shot(`fc_${k}${tag}_h`, [hp.x + Math.sin(0.6) * 0.62, ey + 0.05, lz + Math.cos(0.6) * 0.62], [hp.x, ey + 0.01, lz - 0.03], 30, 700, 700); // the whole head, hair and all
+      if (v === 'k') await shot(`fc_${k}${tag}_k`, [hp.x - Math.sin(2.4) * 0.62, ey + 0.05, lz + Math.cos(2.4) * 0.62], [hp.x, ey + 0.0, lz - 0.05], 30, 700, 700); // from behind
       if (v === 'b') await shot(`fc_${k}${tag}_b`, [SPOT.x + 0.5, 1.05, SPOT.z + 2.6], [SPOT.x, 0.92, SPOT.z], 42, 480, 720);
     }
     g.scene.remove(ch.object); ch.dispose();

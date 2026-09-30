@@ -1,8 +1,9 @@
 // Character mesh builder: bodies, heads, hands, clothes and hair are modelled as signed distance fields
 // (smooth-blended primitives, layer by layer) and polygonised with surface nets. Output is plain typed
 // arrays (positions, normals, skin weights, regions, AO) so it can run inside a Web Worker.
-// Everything lives inside charBuilderMain() so its source text can be shipped to a worker as-is.
-export function charBuilderMain() {
+// Everything lives inside charBuilderMain() so its source text can be shipped to a worker as-is. Heads come from the
+// MakeHuman base mesh (mhdata.js, handed in as mhLib, the same way) once the factory has sent its data.
+export function charBuilderMain(mhLib) {
   const TAU = Math.PI * 2;
   const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
   const mix = (a, b, t) => a + (b - a) * t;
@@ -389,15 +390,18 @@ export function charBuilderMain() {
   const ARM_A = 0.36, LEG_A = 0.05; // A-pose used while modelling / binding (rad)
   const HEADKIDS = { jaw: 1, eyeL: 1, eyeR: 1, lidL: 1, lidR: 1, hair1: 1, hair2: 1, browL: 1, browR: 1, mouthL: 1, mouthR: 1 };
 
-  function makeRig(spec) {
+  function makeRig(spec, mh = null) {
     const f = spec.g === 'f';
     const H = spec.S || 1;
     const S = (f ? 0.935 : 1) * H, W = spec.W || 1, Sh = (f ? 0.955 : 1) * H;
     const hs = S * (f ? 0.9 : 1) * Math.pow(W, 0.3), fs = S * (f ? 0.92 : 1); // hand and shoe modelling scales
     const bones = [], P = {}, R = {};
+    // a MakeHuman head: the eyes (and the lids that close over them) turn about its own eyeballs; the brows sit over them
+    const mhOff = mh ? { eyeL: mh.eyeL, eyeR: mh.eyeR, lidL: mh.eyeL, lidR: mh.eyeR, browL: mh.browL, browR: mh.browR } : null;
     for (const [name, parent, off, kind] of BONES) {
       let o = off.slice();
-      if (HEADKIDS[name]) o = o.map((v) => v * Sh);
+      if (mhOff && mhOff[name]) o = mhOff[name].slice();
+      else if (HEADKIDS[name]) o = o.map((v) => v * Sh);
       else if (kind === 'hand') o = o.map((v) => v * hs);
       else if (kind === 'foot') o = o.map((v) => v * fs);
       else {
@@ -420,7 +424,7 @@ export function charBuilderMain() {
       f, S, W, Sh, H, spec, bones, P, R,
       elderly: !!spec.elderly, belly: spec.belly || 1, slim: spec.slim || 0, M: spec.M || 0,
       dArmL: dir('armL', 'foreL'), dArmR: dir('armR', 'foreR'), dLegL: dir('thighL', 'shinL'), dLegR: dir('thighR', 'shinR'),
-      eyeR: 0.0122 * Sh,
+      eyeR: 0.0122 * Sh, mh,
     };
   }
 
@@ -533,6 +537,7 @@ export function charBuilderMain() {
   // anatomical landmarks (head-bone space, metres for a male reference); the face paint in characters.js reads the same table
   function headLandmarks(R) {
     const A = baseLandmarks(R);
+    if (R.mh) { const B = JSON.parse(JSON.stringify(A)); B.cran = R.mh.cran.map((v) => v.map((x) => x / R.Sh)); B.fore = R.mh.fore.map((v) => v.map((x) => x / R.Sh)); return B; } // the hair sits on its skull
     const fc = R.spec && R.spec.face;
     if (!fc) return A;
     // the person's own face: [jaw width, chin, cheeks, nose size, brow ridge], each −1…1
@@ -585,7 +590,7 @@ export function charBuilderMain() {
     }
     return fat;
   }
-  function headLayer(R, h) {
+  function headLayer(R, h, neckTo = null) {
     const L = new Layer('head', h, { order: 1, face: true, tau: 0.006 });
     const f = R.f, Sh = R.Sh, S = R.S, old = R.elderly;
     const hb = R.P.head;
@@ -602,7 +607,9 @@ export function charBuilderMain() {
     for (const s of [-1, 1]) L.add(P_cone(H(s * 0.05, 0.03, -0.028), [s * 0.019 * S, 1.452 * S, 0.047 * S], (f ? 0.0085 : 0.0105) * Sh, (f ? 0.007 : 0.0085) * S), { k: 0.022, bone: 'neck', reg: REG.skin });
     L.int(P_plane([0, -1, 0], [0, 1.4 * S, 0]));
     L.int(P_cone([0, 1.2 * S, -0.012 * S], [0, 1.95 * S, -0.012 * S], 0.108 * S, 0.108 * S));
+    if (neckTo != null) L.int(P_plane([0, 1, 0], [0, neckTo, 0])); // (a MakeHuman head takes over from here up)
     L.end(0);
+    if (neckTo != null) return L;
     const A = headLandmarks(R);
     const ly = old ? 0.8 : 1;
     L.group();
@@ -984,11 +991,21 @@ export function charBuilderMain() {
   }
 
   // ---------------------------------------------------------------- hair, beard, hats (head bone frame)
+  // (on a MakeHuman head, the reference skull's frame is mapped onto its own skull, so hair and hats fit it)
   function headFrame(R) {
     const hb = R.P.head, Sh = R.Sh;
+    if (R.mh) {
+      const d = R.f ? { c: [0, 0.094, -0.015], r: [0.074, 0.086, 0.097] } : { c: [0, 0.095, -0.015], r: [0.076, 0.088, 0.1] }, [c, r] = R.mh.cran;
+      const k = [r[0] / (d.r[0] * Sh), r[1] / (d.r[1] * Sh), r[2] / (d.r[2] * Sh)];
+      // (hk: how much roomier a hat is made, so a skull wider or deeper than the reference one stays inside it)
+      return { hb, Sh, hk: Math.max(1, k[0], k[2]) * 1.03, H: (x, y, z) => [hb[0] + c[0] + (x - d.c[0]) * Sh * k[0], hb[1] + c[1] + (y - d.c[1]) * Sh * k[1], hb[2] + c[2] + (z - d.c[2]) * Sh * k[2]] };
+    }
     return { hb, Sh, H: (x, y, z) => [hb[0] + x * Sh, hb[1] + y * Sh, hb[2] + z * Sh] };
   }
-  function scalp(R) { return R.f ? { c: [0, 0.094, -0.015], r: [0.074, 0.086, 0.097] } : { c: [0, 0.095, -0.015], r: [0.076, 0.088, 0.1] }; }
+  function scalp(R) { // (its centre in the reference frame, which headFrame maps; on a MakeHuman head, that skull's size)
+    const d = R.f ? { c: [0, 0.094, -0.015], r: [0.074, 0.086, 0.097] } : { c: [0, 0.095, -0.015], r: [0.076, 0.088, 0.1] };
+    return R.mh ? { c: d.c, r: R.mh.cran[1].map((v) => v / R.Sh) } : d;
+  }
   // hats cut away all the hair above their lower edge (and a margin round them), so nothing pokes through;
   // the hair still shows below the edge of a cap, a beret, a beanie or a straw hat
   const HATS = { gorra: 1, boina: 1, gorro: 1, sombrero: 1 };
@@ -1171,22 +1188,22 @@ export function charBuilderMain() {
   function hatLayer(R, h, hat) {
     if (!HATS[hat]) return null;
     const L = new Layer('hat', h, { order: 7, tau: 0.02 });
-    const { H, Sh } = headFrame(R);
+    const hf = headFrame(R), H = hf.H, Sh = hf.Sh * (hf.hk || 1), Shy = hf.Sh; // (roomier round a MakeHuman head, not taller)
     if (hat === 'gorra') {
       L.group();
-      L.add(P_ell(H(0, 0.1, -0.008), [0.088 * Sh, 0.1 * Sh, 0.108 * Sh]), { bone: 'head', reg: REG.cap });
+      L.add(P_ell(H(0, 0.1, -0.008), [0.088 * Sh, 0.1 * Shy, 0.108 * Sh]), { bone: 'head', reg: REG.cap });
       L.int(P_plane([0, -0.2, 0.043], H(0, 0.075, -0.1)), { reg: REG.capBrim });
       L.end(0);
       L.group();
-      L.add(P_ell(H(0, 0.119, 0.1), [0.08 * Sh, 0.008 * Sh, 0.078 * Sh], rotX(-0.12)), { bone: 'head', reg: REG.capBrim });
+      L.add(P_ell(H(0, 0.119, 0.1), [0.08 * Sh, 0.008 * Shy, 0.078 * Sh], rotX(-0.12)), { bone: 'head', reg: REG.capBrim });
       L.int(P_plane([0, 0, -1], H(0, 0, 0.06)), { reg: REG.capBrim });
       L.end(0.01);
       L.add(P_sphere(H(0, 0.198, -0.008), 0.007 * Sh), { k: 0.004, bone: 'head', reg: REG.cap });
     } else if (hat === 'boina') {
-      L.add(P_ell(H(0.008, 0.158, -0.01), [0.106 * Sh, 0.034 * Sh, 0.112 * Sh]), { bone: 'head', reg: REG.cap });
+      L.add(P_ell(H(0.008, 0.158, -0.01), [0.106 * Sh, 0.034 * Shy, 0.112 * Sh]), { bone: 'head', reg: REG.cap });
       L.group();
       const sc = scalp(R);
-      L.add(P_ell(H(...sc.c), [sc.r[0] * Sh, sc.r[1] * Sh, sc.r[2] * Sh]), { inf: 0.007 * Sh, bone: 'head', reg: REG.cap });
+      L.add(P_ell(H(...sc.c), [sc.r[0] * Sh, sc.r[1] * Shy, sc.r[2] * Sh]), { inf: 0.007 * Sh, bone: 'head', reg: REG.cap });
       L.int(P_plane([0, -1, 0], H(0, 0.112, 0)), { reg: REG.cap });
       L.end(0.025);
       L.add(P_sphere(H(0.008, 0.193, -0.01), 0.006 * Sh), { k: 0.004, bone: 'head', reg: REG.cap });
@@ -1194,12 +1211,12 @@ export function charBuilderMain() {
       // knitted beanie: snug over the skull, a turned-up band, a little slouch at the back
       const sc = scalp(R);
       L.group();
-      L.add(P_ell(H(...sc.c), [sc.r[0] * Sh, sc.r[1] * Sh, sc.r[2] * Sh]), { inf: 0.009 * Sh, bone: 'head', reg: REG.cap });
-      L.add(P_ell(H(0, 0.16, -0.045), [0.07 * Sh, 0.05 * Sh, 0.07 * Sh]), { k: 0.03, bone: 'head', reg: REG.cap });
+      L.add(P_ell(H(...sc.c), [sc.r[0] * Sh, sc.r[1] * Shy, sc.r[2] * Sh]), { inf: 0.009 * Sh, bone: 'head', reg: REG.cap });
+      L.add(P_ell(H(0, 0.16, -0.045), [0.07 * Sh, 0.05 * Shy, 0.07 * Sh]), { k: 0.03, bone: 'head', reg: REG.cap });
       L.int(P_plane([0, -1, 0.25], H(0, 0.085, 0)), { reg: REG.capBrim });
       L.end(0);
       L.group();
-      L.add(P_ell(H(...sc.c), [sc.r[0] * Sh, sc.r[1] * Sh, sc.r[2] * Sh]), { inf: 0.014 * Sh, bone: 'head', reg: REG.capBrim });
+      L.add(P_ell(H(...sc.c), [sc.r[0] * Sh, sc.r[1] * Shy, sc.r[2] * Sh]), { inf: 0.014 * Sh, bone: 'head', reg: REG.capBrim });
       L.int(P_plane([0, -1, 0.25], H(0, 0.085, 0)), { reg: REG.capBrim });
       L.int(P_plane([0, 1, -0.25], H(0, 0.118, 0)), { reg: REG.capBrim });
       L.end(0.004);
@@ -1207,11 +1224,11 @@ export function charBuilderMain() {
       // straw hat (sombrero de paja): a rounded crown with a band, a wide brim
       // (the crown sits a little forward and roomier: the forehead used to poke through its front)
       L.add(P_cone(H(0, 0.1, -0.006), H(0, 0.205, -0.01), 0.103 * Sh, 0.087 * Sh), { bone: 'head', reg: REG.cap, k: 0 });
-      L.add(P_ell(H(0, 0.2, -0.012), [0.085 * Sh, 0.02 * Sh, 0.09 * Sh]), { k: 0.02, bone: 'head', reg: REG.cap });
-      L.sub(P_ell(H(0, 0.22, -0.012), [0.03 * Sh, 0.02 * Sh, 0.06 * Sh]), { k: 0.012, reg: REG.cap }); // the dent on top
+      L.add(P_ell(H(0, 0.2, -0.012), [0.085 * Sh, 0.02 * Shy, 0.09 * Sh]), { k: 0.02, bone: 'head', reg: REG.cap });
+      L.sub(P_ell(H(0, 0.22, -0.012), [0.03 * Sh, 0.02 * Shy, 0.06 * Sh]), { k: 0.012, reg: REG.cap }); // the dent on top
       L.add(P_cone(H(0, 0.11, -0.006), H(0, 0.135, -0.007), 0.105 * Sh, 0.097 * Sh), { k: 0.003, bone: 'head', reg: REG.capBrim });
       L.group();
-      L.add(P_ell(H(0, 0.108, -0.012), [0.19 * Sh, 0.012 * Sh, 0.19 * Sh]), { bone: 'head', reg: REG.cap });
+      L.add(P_ell(H(0, 0.108, -0.012), [0.19 * Sh, 0.012 * Shy, 0.19 * Sh]), { bone: 'head', reg: REG.cap });
       L.add(P_torus(H(0, 0.105, -0.012), 0.182 * Sh, 0.006 * Sh), { k: 0.004, bone: 'head', reg: REG.cap });
       L.end(0.008);
     }
@@ -1541,6 +1558,312 @@ export function charBuilderMain() {
     return { ...P, idx: out.out() };
   }
 
+  // ---------------------------------------------------------------- the MakeHuman head (CC0: base mesh, targets and proxies by the
+  // MakeHuman team; the data and the morphing in mhdata.js). The person's own head: sex, age, ancestry and build (the
+  // macro targets) and a scatter of features, put on the head bone; its eyes, brows, lashes and teeth fitted onto it.
+  // The neck below it stays sculpted, clipped where this mesh begins and stitched to it.
+  const MHL = typeof mhLib === 'function' ? mhLib() : null;
+  let MHD = null;
+  function setMH(buf) { MHD = MHL && buf ? MHL.parseMH(buf) : null; return !!MHD; }
+  const MH_A = [0, 0.0441, -0.0334]; // the base mesh's head joint from our head bone (so its eyes land on the rig's), × height
+  const MH_SKIP = /^(head\/head-(age|fat|trans)|neck\/)/; // left to the macros (age, weight) and to the stitch (the neck)
+  // desc.face's five: jaw width, chin, cheekbones, nose size, brow ridge
+  const MH_FACE = [['chin/chin-bones', 'head/head-square'], ['chin/chin-prominent', 'chin/chin-height'], ['cheek/cheek-bones', 'cheek/cheek-volume'], ['nose/nose-scale-vert', 'nose/nose-scale-horiz'], ['eyebrows/eyebrows-angle', 'forehead/forehead-nubian']];
+  const MH_MAT = { skin: 17, eye: 18, brow: 19, lash: 20, teeth: 21, hair: 22 };
+  function mhHead(spec) {
+    const D = MHD, m = spec.mh, H = spec.S || 1;
+    const w = MHL.macroWeights(m.g, m.age, { african: m.eth[0], asian: m.eth[1], caucasian: m.eth[2] }, m.wt, m.mu);
+    const sl = MHL.faceSliders(D), byName = {};
+    for (const x of sl) if (!byName[x.name]) byName[x.name] = x;
+    const add = (x, v, k2 = 1) => {
+      if (!x || !v) return;
+      const [a, b] = v > 0 ? x.pos : x.neg;
+      if (a) w[a] = (w[a] || 0) + Math.abs(v);
+      if (b) w[b] = (w[b] || 0) + Math.abs(v) * k2;
+    };
+    let sd = (m.seed >>> 0) || 1;
+    const rnd = () => { sd ^= sd << 13; sd >>>= 0; sd ^= sd >>> 17; sd ^= sd << 5; sd >>>= 0; return sd / 4294967296; };
+    for (const x of sl) {
+      const r = rnd(), v = (rnd() * 2 - 1) * m.amt * (/^(eyes|ears)\//.test(x.name) ? 0.6 : 1), k2 = 0.92 + rnd() * 0.16;
+      if (r < 0.45 && !MH_SKIP.test(x.name)) add(x, v, k2); // (the two sides a touch apart)
+    }
+    if (m.face) m.face.forEach((v, i) => { for (const n of MH_FACE[i]) add(byName[n], v * 0.5); });
+    const p = MHL.morphMH(D, w);
+    const J = MHL.jointMH(D, p, 'joint-head'), k = 0.1 * H;
+    const q = new Float32Array(D.nR * 3);
+    for (let i = 0; i < D.nR; i++) for (let a = 0; a < 3; a++) q[i * 3 + a] = (p[i * 3 + a] - J[a]) * k + MH_A[a] * H;
+    const at = (name) => MHL.jointMH(D, q, name);
+    const eyeL = at('joint-l-eye'), eyeR = at('joint-r-eye');
+    // the skull under the hair: how high, wide, far back and forward the crown goes above the brows
+    const browY = (eyeL[1] + eyeR[1]) / 2 + 0.022 * H;
+    let top = -1, back = 1, wide = 0, front = -1, ring = 1;
+    const body = D.index.subarray(0, D.nBody);
+    for (let t = 0; t < body.length; t++) {
+      const v = D.map[body[t]], x = q[v * 3], y = q[v * 3 + 1], z = q[v * 3 + 2];
+      if (y < ring) ring = y;
+      if (y < browY) continue;
+      if (y > top) top = y;
+      if (z < back) back = z;
+      if (y > browY + 0.02 * H && Math.abs(x) > wide) wide = Math.abs(x);
+      if (Math.abs(x) < 0.02 * H && z > front) front = z;
+    }
+    const cy = browY + 0.005 * H, cz = (front + back) / 2 - 0.01 * H;
+    const cran = [[0, cy, cz], [wide + 0.002 * H, top - cy, (front - back) / 2 + 0.005 * H]];
+    const kx = cran[1][0] / 0.076, ky = cran[1][1] / 0.088, kz = cran[1][2] / 0.1;
+    const fore = [[0, cy + 0.01 * ky, cz + 0.045 * kz], [0.066 * kx, 0.05 * ky, 0.06 * kz]];
+    // the eyeball's radius (the eye proxy round its centre)
+    const ex = D.proxies.find((x) => x.kind === 'eyes');
+    let er = 0.012 * H;
+    if (ex) { const eq = MHL.fitProxy(D, q, ex); er = 0; for (let i = 0; i < eq.length / 3; i++) if (eq[i * 3] > 0) er = Math.max(er, Math.hypot(eq[i * 3] - eyeL[0], eq[i * 3 + 1] - eyeL[1], eq[i * 3 + 2] - eyeL[2])); }
+    return { q, H, eyeL, eyeR, er, browL: [eyeL[0], eyeL[1] + 0.022 * H, eyeL[2] + 0.012 * H], browR: [eyeR[0], eyeR[1] + 0.022 * H, eyeR[2] + 0.012 * H],
+      cran, fore, lipL: at('lm-mouthL'), lipR: at('lm-mouthR'), lip: at('lm-lipline'), ring, brow: m.brow, lash: m.lash, hair: m.hair || null };
+  }
+  // what a hat takes away of the hair (hatCut's primitives: a sphere round the skull, above the hat's rim), world space
+  function hatZone(R, hat, margin = 0.004) {
+    if (!HATS[hat]) return null;
+    const { H, Sh } = headFrame(R);
+    const c = H(0, 0.1, -0.01), r = 0.2 * Sh;
+    const [n0, p0] = hat === 'gorra' ? [[0, -0.2, 0.043], H(0, 0.068, -0.1)] : hat === 'boina' ? [[0, -1, 0], H(0, 0.1, 0)] : hat === 'gorro' ? [[0, -1, 0.25], H(0, 0.08, 0)] : [[0, -1, 0.1], H(0, 0.1, 0)];
+    const n = nrm(n0), d0 = dot(n, p0);
+    return (x, y, z) => Math.hypot(x - c[0], y - c[1], z - c[2]) < r && n[0] * x + n[1] * y + n[2] * z - d0 < -margin * Sh;
+  }
+  // the same triangles facing the other way (normals flipped)
+  function flipPart(P) {
+    const idx = new Uint32Array(P.idx.length);
+    for (let t = 0; t < idx.length; t += 3) { idx[t] = P.idx[t]; idx[t + 1] = P.idx[t + 2]; idx[t + 2] = P.idx[t + 1]; }
+    return { ...P, nrm: P.nrm.map((v) => -v), idx };
+  }
+  // the head's parts in the bind pose with their bones: skin (and the mouth's inside), eyes, brows, lashes, teeth.
+  // neckD: the sculpted neck's distance field, unclipped, to stitch the edge onto
+  function mhParts(R, mh, neckD, hat) {
+    const D = MHD, q = mh.q, hb = R.P.head, H = mh.H, n = D.nR, er = mh.er;
+    const X = new Float32Array(n * 3), nBlend = [];
+    for (let i = 0; i < n; i++) for (let a = 0; a < 3; a++) X[i * 3 + a] = q[i * 3 + a] + hb[a];
+    const body = D.index.subarray(0, D.nBody), teeth = D.index.subarray(D.nBody), map = D.map;
+    // --- the stitch: the neck's open lower edge onto the sculpted neck, the band above it eased the same way
+    if (neckD) {
+      const cnt = new Map();
+      for (let t = 0; t < body.length; t += 3) for (let e = 0; e < 3; e++) {
+        const a = map[body[t + e]], b = map[body[t + (e + 1) % 3]], key = a < b ? a * 65536 + b : b * 65536 + a;
+        cnt.set(key, (cnt.get(key) || 0) + 1);
+      }
+      const edge = new Set();
+      for (const [key, c] of cnt) if (c === 1) { const a = Math.floor(key / 65536), b = key % 65536; if (q[a * 3 + 1] < mh.ring + 0.025 * H && q[b * 3 + 1] < mh.ring + 0.025 * H) { edge.add(a); edge.add(b); } }
+      const eps = 0.0006, moves = [];
+      for (const i of edge) {
+        // the edge made level (its quads end a centimetre or two apart), a few millimetres below where the sculpted neck
+        // is cut, and laid onto that neck (sideways only) a hair outside it: the two overlap, the seam hidden under the edge
+        const y = hb[1] + mh.ring - 0.004 * H;
+        let x = X[i * 3], z = X[i * 3 + 2], gx = 0, gz = 0;
+        for (let it = 0; it < 5; it++) {
+          const d = neckD(x, y, z);
+          gx = neckD(x + eps, y, z) - neckD(x - eps, y, z); gz = neckD(x, y, z + eps) - neckD(x, y, z - eps);
+          const gl = Math.hypot(gx, gz) || 1;
+          x -= (gx / gl) * d; z -= (gz / gl) * d;
+        }
+        const gl = Math.hypot(gx, gz) || 1;
+        x += (gx / gl) * 0.0012; z += (gz / gl) * 0.0012;
+        // (the neck's own normal there, so the shading runs on across the seam)
+        const nx = neckD(x + eps, y, z) - neckD(x - eps, y, z), ny = neckD(x, y + eps, z) - neckD(x, y - eps, z), nz = neckD(x, y, z + eps) - neckD(x, y, z - eps), nl = Math.hypot(nx, ny, nz) || 1;
+        moves.push([i, x - X[i * 3], y - X[i * 3 + 1], z - X[i * 3 + 2], nx / nl, ny / nl, nz / nl]);
+      }
+      // the band above follows its nearest edge vertex, less and less with the height above that vertex's own
+      const band = 0.04 * H, used = new Uint8Array(n), X0 = X.slice();
+      for (let t = 0; t < body.length; t++) used[map[body[t]]] = 1;
+      for (let i = 0; i < n; i++) {
+        if (!used[i]) continue;
+        let best = 1e9, mv = null;
+        for (const m of moves) { const j = m[0], dd = (X0[j * 3] - X0[i * 3]) ** 2 + (X0[j * 3 + 2] - X0[i * 3 + 2]) ** 2; if (dd < best) { best = dd; mv = m; } }
+        if (!mv) continue;
+        const hgt = q[i * 3 + 1] - q[mv[0] * 3 + 1];
+        if (hgt > band) continue;
+        const f = edge.has(i) ? 1 : Math.pow(1 - sstep(0, band, hgt), 1.3) * 0.9;
+        X[i * 3] += mv[1] * f; X[i * 3 + 1] += mv[2] * f; X[i * 3 + 2] += mv[3] * f;
+        nBlend.push([i, f, mv[4], mv[5], mv[6]]);
+      }
+    }
+    // --- normals over the whole region (so none breaks at the edges of the texture's islands)
+    const N = new Float32Array(n * 3);
+    const tri = (idx, P, out) => {
+      for (let t = 0; t < idx.length; t += 3) {
+        const a = map[idx[t]], b = map[idx[t + 1]], c = map[idx[t + 2]];
+        const ux = P[b * 3] - P[a * 3], uy = P[b * 3 + 1] - P[a * 3 + 1], uz = P[b * 3 + 2] - P[a * 3 + 2];
+        const vx = P[c * 3] - P[a * 3], vy = P[c * 3 + 1] - P[a * 3 + 1], vz = P[c * 3 + 2] - P[a * 3 + 2];
+        const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+        for (const v of [a, b, c]) { out[v * 3] += nx; out[v * 3 + 1] += ny; out[v * 3 + 2] += nz; }
+      }
+    };
+    tri(body, X, N); tri(teeth, X, N);
+    for (const [i, f, nx, ny, nz] of nBlend) { // down to the seam the normals turn into the sculpted neck's
+      const l = Math.hypot(N[i * 3], N[i * 3 + 1], N[i * 3 + 2]) || 1, k = Math.pow(f, 0.7);
+      N[i * 3] = (N[i * 3] / l) * (1 - k) + nx * k; N[i * 3 + 1] = (N[i * 3 + 1] / l) * (1 - k) + ny * k; N[i * 3 + 2] = (N[i * 3 + 2] / l) * (1 - k) + nz * k;
+    }
+    // --- bones: the neck into the head; the jaw below the plane from its hinge to the lips; the corners of the mouth
+    // and the brows on their own (expressions); the upper lids over the eyeballs
+    const Sh = R.Sh, tmj = [0, 0.05 * Sh, -0.005 * Sh], lip = mh.lip;
+    const dy = lip[1] - tmj[1], dz = lip[2] - tmj[2], dl = Math.hypot(dy, dz) || 1, pny = dz / dl, pnz = -dy / dl;
+    const low = new Set(D.joints['lm-teethlow'] || []);
+    const upL = D.joints['lm-lidupL'] || [], upR = D.joints['lm-lidupR'] || [];
+    const lidRim = new Set([...upL, ...upR]);
+    const g2 = (x, y, cx, cy, rx, ry) => Math.exp(-((x - cx) ** 2) / (rx * rx) - ((y - cy) ** 2) / (ry * ry));
+    // the mouth's slit (the middle of the ring where the lips meet the mouth's inside, by |x|, on the base mesh): what
+    // lies below it round the mouth is the lower lip, on the jaw — the plane alone left it half on the head
+    const B0 = D.base, slit = [];
+    {
+      const ring = D.joints['lm-lipline'] || [], bins = [[], [], [], [], [], []];
+      let xc = 0.01;
+      for (const v of ring) xc = Math.max(xc, Math.abs(B0[v * 3]));
+      for (const v of ring) bins[Math.min(5, Math.floor((Math.abs(B0[v * 3]) / xc) * 6))].push(B0[v * 3 + 1]);
+      for (let b = 0; b < 6; b++) slit.push(bins[b].length ? bins[b].reduce((a, c) => a + c, 0) / bins[b].length : null);
+      for (let b = 1; b < 6; b++) if (slit[b] === null) slit[b] = slit[b - 1];
+      for (let b = 4; b >= 0; b--) if (slit[b] === null) slit[b] = slit[b + 1];
+      slit.xc = xc;
+    }
+    const lowerLip = (v) => {
+      if (v < 0 || !slit.length || slit[0] === null) return -1;
+      const ax = Math.abs(B0[v * 3]), by = B0[v * 3 + 1], bz = B0[v * 3 + 2];
+      const u = Math.min(5.999, (ax / slit.xc) * 6), b = Math.floor(u), m = b < 5 ? slit[b] + (slit[b + 1] - slit[b]) * (u - b) : slit[5];
+      const near = sstep(slit.xc + 0.08, slit.xc - 0.01, ax) * sstep(0.3, 0.1, Math.abs(by - m)) * sstep(0.85, 1.05, bz);
+      return near > 0.001 ? [near, sstep(m + 0.006, m - 0.006, by)] : -1;
+    };
+    const weightAt = (x, y, z, rim = false, forceLow = false, v = -1) => {
+      const wH = sstep(-0.07 * H, -0.012 * H, y);
+      const acc = { head: wH, neck: 1 - wH };
+      if (acc.neck < 1e-3) delete acc.neck;
+      // jaw
+      const below = (y - tmj[1]) * pny + (z - tmj[2]) * pnz;
+      let wj = forceLow ? 1 : sstep(0.0025 * H, -0.006 * H, below) * sstep(-0.012 * H, 0.012 * H, z - tmj[2]) * sstep(lip[1] - 0.085 * H, lip[1] - 0.05 * H, y);
+      const ll = forceLow ? -1 : lowerLip(v);
+      if (ll !== -1) wj = wj + (ll[1] - wj) * ll[0];
+      if (wj > 1e-3) { const h0 = acc.head || 0; acc.jaw = h0 * wj; acc.head = h0 * (1 - wj); }
+      const move = (to, t, from) => { for (const b of from) { const v = acc[b]; if (!v) continue; acc[b] = v * (1 - t); acc[to] = (acc[to] || 0) + v * t; } };
+      const front = sstep(lip[2] - 0.03 * H, lip[2] - 0.012 * H, z);
+      for (const [c, to] of [[mh.lipL, 'mouthL'], [mh.lipR, 'mouthR']]) { const t = g2(x, y, c[0], c[1], 0.0145 * H, 0.0125 * H) * front * 0.9; if (t > 0.01) move(to, t, ['head', 'jaw']); }
+      for (const [c, to] of [[mh.browL, 'browL'], [mh.browR, 'browR']]) { const t = g2(x, y, c[0], c[1], 0.019 * H, 0.011 * H) * sstep(c[2] - 0.03 * H, c[2] - 0.012 * H, z) * 0.9; if (t > 0.01) move(to, t, ['head']); }
+      for (const [c, to] of [[mh.eyeL, 'lidL'], [mh.eyeR, 'lidR']]) {
+        const d = Math.hypot(x - c[0], y - c[1], z - c[2]);
+        const t = rim ? 1 : sstep(er * 1.45, er * 1.1, d) * sstep(-0.12 * er, 0.3 * er, y - c[1]) * sstep(c[2] - 0.2 * er, c[2] + 0.35 * er, z);
+        if (t > 0.01 && Math.abs(x - c[0]) < er * 1.6) move(to, t, ['head']);
+      }
+      return Object.entries(acc);
+    };
+    const WB = new Array(n);
+    for (let i = 0; i < n; i++) WB[i] = weightAt(q[i * 3], q[i * 3 + 1], q[i * 3 + 2], lidRim.has(i), low.has(i), i);
+    // --- parts (merge() keeps only the vertices their triangles use)
+    const nv = map.length, parts = [];
+    // (the shader's face attribute on these parts: the unmorphed base mesh, metres from 0.7 m up its axis, so what is
+    // painted by position — the hair's masks, the shine on the nose — stays put on every face)
+    const BF = (p, i, out, o) => { out[o] = p[i * 3] * 0.1; out[o + 1] = (p[i * 3 + 1] - 7) * 0.1; out[o + 2] = p[i * 3 + 2] * 0.1; };
+    const skin = (name, idx, mat, reg) => {
+      const pos = new Float32Array(nv * 3), nrm = new Float32Array(nv * 3), uv = new Float32Array(nv * 2), face = new Float32Array(nv * 3), R8 = new Uint8Array(nv).fill(reg), M8 = new Uint8Array(nv).fill(mat), bones = new Array(nv);
+      for (let r = 0; r < nv; r++) {
+        const v = map[r], l = Math.hypot(N[v * 3], N[v * 3 + 1], N[v * 3 + 2]) || 1;
+        for (let a = 0; a < 3; a++) { pos[r * 3 + a] = X[v * 3 + a]; nrm[r * 3 + a] = N[v * 3 + a] / l; }
+        uv[r * 2] = D.uv[r * 2]; uv[r * 2 + 1] = D.uv[r * 2 + 1];
+        BF(D.base, v, face, r * 3);
+        bones[r] = WB[v];
+      }
+      parts.push({ name, nv, pos, nrm, idx: Uint32Array.from(idx), reg: R8, mat: M8, uv, face, bones, order: null, mh: mat === MH_MAT.teeth ? 'teeth' : 'skin' });
+    };
+    let skinIdx = body;
+    if (hat && HATS[hat]) { // under a hat the crown goes (it would poke through the top of it)
+      const inHat = hatZone(R, hat, 0.008), keep = [];
+      for (let t = 0; t < body.length; t += 3) {
+        if ([0, 1, 2].every((k) => { const v = map[body[t + k]]; return inHat(X[v * 3], X[v * 3 + 1], X[v * 3 + 2]); })) continue;
+        keep.push(body[t], body[t + 1], body[t + 2]);
+      }
+      skinIdx = Uint16Array.from(keep);
+    }
+    skin('head', skinIdx, MH_MAT.skin, REG.skin);
+    skin('teeth', teeth, MH_MAT.teeth, REG.mouth);
+    // proxies: the eyes (each on its own bone), the chosen brows and lashes (the upper lashes on the lids)
+    // hair (MakeHuman's cards): on the head, blending into the neck below it; loose hair behind and below the ears on
+    // hair2 so it can swing, a ponytail's tail on hair1/hair2; darker deep inside (near the skull)
+    const hairW = (x, y, z) => {
+      const wH = sstep(-0.07 * H, -0.012 * H, y), acc = { head: wH };
+      if (wH < 1) acc.neck = 1 - wH;
+      const hy = y / Sh, hz = z / Sh;
+      const mv = (to, t) => { if (t <= 0.01) return; let tot = 0; for (const b of ['head', 'neck']) if (acc[b]) { const m = acc[b] * t; acc[b] -= m; tot += m; } acc[to] = (acc[to] || 0) + tot; };
+      if (mh.hair === 'ponytail01') { mv('hair1', sstep(-0.075, -0.1, hz) * sstep(0.17, 0.12, hy) * 0.9); mv('hair2', sstep(-0.1, -0.13, hz) * sstep(0.1, 0.02, hy) * 0.9); }
+      else mv('hair2', clamp((0.045 - hy) / 0.13, 0, 1) * clamp((0.035 - hz) / 0.05, 0, 1) * 0.85);
+      return Object.entries(acc);
+    };
+    const [cc, cr] = mh.cran;
+    const hatIn = hat ? hatZone(R, hat) : null;
+    // a haircut stands a few millimetres off the scalp at least (the morphs move the two a little differently, and a
+    // close crop would sink into the skin): each vertex against the nearest skin vertex, along its normal
+    const standOff = (pos, pn) => {
+      const cell = 0.02 * H, grid = new Map(), K = (a, b, c) => a * 92821 + b * 689287 + c * 7919;
+      const onSkin = new Uint8Array(n);
+      for (let t = 0; t < body.length; t++) onSkin[map[body[t]]] = 1;
+      for (let v = 0; v < n; v++) {
+        if (!onSkin[v]) continue;
+        const k = K(Math.floor(X[v * 3] / cell), Math.floor(X[v * 3 + 1] / cell), Math.floor(X[v * 3 + 2] / cell));
+        let l = grid.get(k); if (!l) grid.set(k, (l = [])); l.push(v);
+      }
+      const want = 0.0035 * H;
+      for (let r = 0; r < pn; r++) {
+        const x = pos[r * 3], y = pos[r * 3 + 1], z = pos[r * 3 + 2], ix = Math.floor(x / cell), iy = Math.floor(y / cell), iz = Math.floor(z / cell);
+        let best = 1e9, bv = -1;
+        for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) for (let c = -1; c <= 1; c++) {
+          const l = grid.get(K(ix + a, iy + b, iz + c)); if (!l) continue;
+          for (const v of l) { const d2 = (X[v * 3] - x) ** 2 + (X[v * 3 + 1] - y) ** 2 + (X[v * 3 + 2] - z) ** 2; if (d2 < best) { best = d2; bv = v; } }
+        }
+        if (bv < 0) continue;
+        const nx = N[bv * 3], ny = N[bv * 3 + 1], nz = N[bv * 3 + 2], nl = Math.hypot(nx, ny, nz) || 1;
+        const d = ((x - X[bv * 3]) * nx + (y - X[bv * 3 + 1]) * ny + (z - X[bv * 3 + 2]) * nz) / nl;
+        if (d < want && d > -0.025 * H) { const k = (want - d) / nl; pos[r * 3] += nx * k; pos[r * 3 + 1] += ny * k; pos[r * 3 + 2] += nz * k; }
+      }
+    };
+    for (const px of D.proxies) {
+      if (px.kind === 'cornea') continue;
+      if ((px.kind === 'brow' && px.name !== mh.brow) || (px.kind === 'lash' && px.name !== mh.lash) || (px.kind === 'hair' && px.name !== mh.hair)) continue;
+      const pq = MHL.fitProxy(D, q, px), pb = MHL.fitProxy(D, D.base, px), pn = px.map.length;
+      const pos = new Float32Array(pn * 3), uv = new Float32Array(pn * 2), face = new Float32Array(pn * 3), bones = new Array(pn);
+      for (let r = 0; r < pn; r++) {
+        const v = px.map[r], x = pq[v * 3], y = pq[v * 3 + 1], z = pq[v * 3 + 2];
+        pos[r * 3] = x + hb[0]; pos[r * 3 + 1] = y + hb[1]; pos[r * 3 + 2] = z + hb[2];
+        BF(pb, v, face, r * 3);
+        uv[r * 2] = px.uv[r * 2]; uv[r * 2 + 1] = px.uv[r * 2 + 1];
+        if (px.kind === 'eyes') bones[r] = [[x > 0 ? 'eyeL' : 'eyeR', 1]];
+        else if (px.kind === 'lash') { const c = x > 0 ? mh.eyeL : mh.eyeR; bones[r] = y > c[1] ? [[x > 0 ? 'lidL' : 'lidR', 1]] : [['head', 1]]; }
+        else if (px.kind === 'hair') bones[r] = hairW(x, y, z);
+        else bones[r] = weightAt(x, y, z);
+      }
+      let I = px.index;
+      if (px.kind === 'hair') standOff(pos, pn);
+      if (px.kind === 'hair' && hatIn) { // under a hat only what shows below its rim
+        const keep = [];
+        for (let t = 0; t < I.length; t += 3) if (![0, 1, 2].every((k) => { const v = I[t + k]; return hatIn(pos[v * 3], pos[v * 3 + 1], pos[v * 3 + 2]); })) keep.push(I[t], I[t + 1], I[t + 2]);
+        I = Uint16Array.from(keep);
+      }
+      // normals of the proxy's own triangles
+      const nrm = new Float32Array(pn * 3);
+      for (let t = 0; t < I.length; t += 3) {
+        const a = I[t], b = I[t + 1], c = I[t + 2];
+        const ux = pos[b * 3] - pos[a * 3], uy = pos[b * 3 + 1] - pos[a * 3 + 1], uz = pos[b * 3 + 2] - pos[a * 3 + 2];
+        const vx = pos[c * 3] - pos[a * 3], vy = pos[c * 3 + 1] - pos[a * 3 + 1], vz = pos[c * 3 + 2] - pos[a * 3 + 2];
+        const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+        for (const v of [a, b, c]) { nrm[v * 3] += nx; nrm[v * 3 + 1] += ny; nrm[v * 3 + 2] += nz; }
+      }
+      for (let r = 0; r < pn; r++) { const l = Math.hypot(nrm[r * 3], nrm[r * 3 + 1], nrm[r * 3 + 2]) || 1; nrm[r * 3] /= l; nrm[r * 3 + 1] /= l; nrm[r * 3 + 2] /= l; }
+      const kind = px.kind === 'eyes' ? 'eye' : px.kind;
+      const reg = kind === 'eye' ? REG.eyeWhite : kind === 'brow' || kind === 'hair' ? REG.hair : REG.lashF;
+      const P = { name: kind === 'eye' ? 'eye' : 'head', nv: pn, pos, nrm, idx: Uint32Array.from(I), reg: new Uint8Array(pn).fill(reg), mat: new Uint8Array(pn).fill(MH_MAT[kind]), uv, face, bones, order: null, mh: kind };
+      if (kind === 'hair') {
+        // deep in the hair it is darker: by how far a vertex stands off the skull (its ellipsoid), long hair below it lit
+        P.aoMul = new Float32Array(pn);
+        for (let r = 0; r < pn; r++) {
+          const v = px.map[r], x = pq[v * 3] - cc[0], y = pq[v * 3 + 1] - cc[1], z = pq[v * 3 + 2] - cc[2];
+          const k = Math.hypot(x / cr[0], y / cr[1], z / cr[2]), d = (k - 1) * Math.min(cr[0], cr[1], cr[2]);
+          P.aoMul[r] = y < -cr[1] * 0.9 ? 0.85 : 0.42 + 0.58 * sstep(-0.004 * H, 0.022 * H, d);
+        }
+        parts.push(P, { ...flipPart(P), mh: 'hairBack' }); // (cards: seen from both sides)
+      } else parts.push(P);
+    }
+    return parts;
+  }
+
   // ---------------------------------------------------------------- assembly
   const MIRROR = { handL: 'handR', fingL: 'fingR', fing2L: 'fing2R', thumbL: 'thumbR', thumb2L: 'thumb2R', foreL: 'foreR', footL: 'footR', toeL: 'toeR', shinL: 'shinR', armL: 'armR', thighL: 'thighR', clavL: 'clavR' };
   function matFor(part, reg, spec, R) {
@@ -1663,7 +1986,7 @@ export function charBuilderMain() {
           o += w * clamp((dd - d) / dd, 0, 1);
         }
         const groundOcc = clamp(1 - y / (0.25 * S), 0, 1) * 0.18;
-        ao[v] = Math.round(clamp(1 - o * 1.25 - groundOcc, 0.25, 1) * 255);
+        ao[v] = Math.round(clamp(1 - o * 1.25 - groundOcc, 0.25, 1) * (P.aoMul ? P.aoMul[v] : 1) * 255);
       }
       P.ao = ao;
     }
@@ -1685,7 +2008,7 @@ export function charBuilderMain() {
       return r;
     });
     const pos = new Float32Array(nv * 3), nrmO = new Int8Array(nv * 3), si = new Uint8Array(nv * 4), sw = new Uint8Array(nv * 4);
-    const reg = new Uint8Array(nv), mat = new Uint8Array(nv), ao = new Uint8Array(nv), face = new Int16Array(nv * 3);
+    const reg = new Uint8Array(nv), mat = new Uint8Array(nv), ao = new Uint8Array(nv), face = new Int16Array(nv * 3), uv = new Uint16Array(nv * 2);
     const index = nv < 65535 ? new Uint16Array(ni) : new Uint32Array(ni);
     const hb = R.P.head, Sh = R.Sh;
     let io = 0;
@@ -1697,9 +2020,11 @@ export function charBuilderMain() {
         const g = base + o;
         for (let k = 0; k < 3; k++) { pos[g * 3 + k] = P.pos[v * 3 + k]; nrmO[g * 3 + k] = Math.round(clamp(P.nrm[v * 3 + k], -1, 1) * 127); }
         reg[g] = P.reg[v];
-        mat[g] = matFor(P.name, P.reg[v], spec, R);
+        mat[g] = P.mat ? P.mat[v] : matFor(P.name, P.reg[v], spec, R);
+        if (P.uv) { uv[g * 2] = Math.round(clamp(P.uv[v * 2], 0, 1) * 65535); uv[g * 2 + 1] = Math.round(clamp(P.uv[v * 2 + 1], 0, 1) * 65535); }
         ao[g] = P.ao ? P.ao[v] : 255;
-        if (P.name === 'head' || P.name === 'eye' || P.name === 'hair' || P.name === 'lid') for (let k = 0; k < 3; k++) face[g * 3 + k] = Math.round(clamp((P.pos[v * 3 + k] - hb[k]) / Sh / 0.3, -1, 1) * 32767);
+        if (P.face) for (let k = 0; k < 3; k++) face[g * 3 + k] = Math.round(clamp(P.face[v * 3 + k] / 0.3, -1, 1) * 32767); // (MakeHuman: its base mesh)
+        else if (P.name === 'head' || P.name === 'eye' || P.name === 'hair' || P.name === 'lid') for (let k = 0; k < 3; k++) face[g * 3 + k] = Math.round(clamp((P.pos[v * 3 + k] - hb[k]) / Sh / 0.3, -1, 1) * 32767);
         // top-4 bone weights → bytes summing to 255
         const W = P.bones[v].filter((e) => e[1] > 1e-4).sort((a, b) => b[1] - a[1]).slice(0, 4);
         if (!W.length) W.push(['hips', 1]);
@@ -1717,7 +2042,7 @@ export function charBuilderMain() {
       }
       for (let t = 0; t < P.idx.length; t++) index[io++] = base + map[P.idx[t]];
     });
-    return { nv, pos, nrm: nrmO, si, sw, reg, mat, ao, face, index };
+    return { nv, pos, nrm: nrmO, si, sw, reg, mat, ao, face, uv, index };
   }
 
   function regionFns(R, spec, L) {
@@ -1782,17 +2107,20 @@ export function charBuilderMain() {
   const ERR = { body: 0.0014, head: 0.00075, hand: 0.0007, shoe: 0.001, top: 0.0013, under: 0.0013, bottom: 0.0013, hair: 0.0011, hat: 0.001, bag: 0.0016 };
   function build(spec) {
     const T0 = Date.now(), times = {};
-    const R = makeRig(spec);
+    const mh = spec.mh && MHD ? mhHead(spec) : null; // (its eyes move the eye bones)
+    const R = makeRig(spec, mh);
     const S = R.S, q = (spec.q || 1) * (spec.hq ? 0.62 : 1); // playable characters: a much finer grid
     const L = {};
     L.body = bodyLayer(R, 0.02 * q * (spec.hq ? 0.85 : 1), -0.0015 * S);
-    L.head = headLayer(R, spec.hq ? 0.0028 * (spec.q || 1) : spec.hqHead ? 0.0038 * (spec.q || 1) : 0.0062 * q); // hq: ~3 mm cells so lips, nostrils and ear rims hold
+    const ringY = mh ? R.P.head[1] + mh.ring : null;
+    if (mh) { L.body.int(P_plane([0, 1, 0], [0, ringY - 0.002 * R.H, 0])); L.head = headLayer(R, 0.0042 * (spec.q || 1), ringY - 0.0025 * R.H); } // the neck up to the MakeHuman head (its edge overlaps it: mhParts)
+    else L.head = headLayer(R, spec.hq ? 0.0028 * (spec.q || 1) : spec.hqHead ? 0.0038 * (spec.q || 1) : 0.0062 * q); // hq: ~3 mm cells so lips, nostrils and ear rims hold
     L.hand = handLayer(R, 0.0055 * q);
     L.shoe = shoeLayer(R, 0.0095 * q, spec.shoe || 'sneaker');
     L.top = topLayer(R, 0.0125 * q, spec.top || 'tshirt', spec);
     if (LAYERED[spec.top]) L.under = topLayer(R, 0.0125 * q, spec.top, spec, 'under');
     const bot = bottomLayer(R, 0.0135 * q, spec.bottom || 'jeans', spec); if (bot) L.bottom = bot;
-    const hair = hairLayer(R, 0.008 * q, spec.hair, spec); if (hair) L.hair = hair;
+    const hair = mh && (mh.hair || spec.hair === 'calvo') ? beardOnly(R, 0.008 * q, spec) : hairLayer(R, 0.008 * q, spec.hair, spec); if (hair) L.hair = hair; // (MakeHuman's haircut: cards, in mhParts; bald: painted)
     const hat = hatLayer(R, 0.009 * q, spec.hat); if (hat) L.hat = hat;
     if (spec.bag) L.bag = bagLayer(R, 0.013 * q);
     if (spec.only) for (const k in L) if (!spec.only.includes(k)) delete L[k];
@@ -1868,7 +2196,7 @@ export function charBuilderMain() {
     // explicit meshes: eyeballs, eyelids, glasses, strings, cane (hi and lo detail)
     const extras = (lo) => {
       const Ae = new Acc(), Al = new Acc(), Aa = new Acc();
-      for (const s of [1, -1]) {
+      for (const s of mh ? [] : [1, -1]) {
         const C = R.P[s > 0 ? 'eyeL' : 'eyeR'];
         eyeMesh(Ae, C, R.eyeR, s > 0 ? 'eyeL' : 'eyeR', lo);
         lidMesh(Al, C, R.eyeR, R.Sh, true, s > 0 ? 'lidL' : 'lidR', lo);
@@ -1883,11 +2211,25 @@ export function charBuilderMain() {
         const T = (x, y, z) => add(o, mulM(m, [x * hs, y * hs, z * hs]));
         tubeMesh(Aa, [T(0.012, -0.92, 0.045), T(0.012, -0.5, 0.03), T(0.012, -0.06, 0.018), T(0.012, 0.0, 0.03), T(0.012, 0.012, 0.06), T(0.012, -0.012, 0.088)], 0.0095 * hs, REG.cane, 'handR', lo ? 4 : 7);
       }
-      const out = [accPart(Ae, 'eye', spec, R), accPart(Al, 'lid', spec, R)];
+      const out = [];
+      if (Ae.nv) out.push(accPart(Ae, 'eye', spec, R));
+      if (Al.nv) out.push(accPart(Al, 'lid', spec, R));
       if (Aa.nv) out.push(accPart(Aa, 'acc', spec, R));
       return out;
     };
-    const hiParts = parts.concat(extras(false)), loExtras = extras(true);
+    // the MakeHuman head, its edge stitched onto the sculpted neck (the neck's field without the clip)
+    let mhP = [];
+    if (mh) {
+      t = Date.now();
+      const nl = headLayer(R, 0.01, 9);
+      nl.buildHash(0.03);
+      mhP = mhParts(R, mh, (x, y, z) => nl.evalFast(x, y, z), spec.hat);
+      times.mh = Date.now() - t;
+    }
+    // (far off, the MakeHuman head: a quarter of the skin's triangles, its brows, eyes and hair's outer side; no teeth
+    // or lashes)
+    const mhLo = mhP.filter((P) => P.mh !== 'teeth' && P.mh !== 'lash' && P.mh !== 'hairBack').map((P) => P.mh === 'skin' ? decimate(P, 0.0028 * S, 0.27) : P.mh === 'eye' ? decimate(P, 0.0015 * S, 0.35) : P);
+    const hiParts = parts.concat(extras(false), mhP), loExtras = extras(true).concat(mhLo);
     t = Date.now();
     computeAO(hiParts.concat(loExtras), occ, S);
     times.ao = Date.now() - t;
@@ -1899,15 +2241,16 @@ export function charBuilderMain() {
     times.raw = raw;
     times.hi = hi.index.length / 3;
     times.lo = lo.index.length / 3;
-    return { key: spec.key, bones: R.bones.map((b) => ({ name: b.name, parent: b.parent, off: b.off, rot: b.rot })), lods: [hi, lo], ms: Date.now() - T0, times };
+    return { key: spec.key, bones: R.bones.map((b) => ({ name: b.name, parent: b.parent, off: b.off, rot: b.rot })), lods: [hi, lo], ms: Date.now() - T0, times, mh: !!mh, mhWanted: !!spec.mh, neckY: mh ? ringY : null };
   }
   function transferables(res) {
     const t = [];
-    for (const l of res.lods) for (const k of ['pos', 'nrm', 'si', 'sw', 'reg', 'mat', 'ao', 'face', 'index']) t.push(l[k].buffer);
+    for (const l of res.lods) for (const k of ['pos', 'nrm', 'si', 'sw', 'reg', 'mat', 'ao', 'face', 'uv', 'index']) t.push(l[k].buffer);
     return t;
   }
   if (typeof window === 'undefined' && typeof self !== 'undefined' && typeof self.postMessage === 'function') {
     self.onmessage = (e) => {
+      if (e.data.mh !== undefined) { setMH(e.data.mh ? new Uint8Array(e.data.mh) : null); return; } // the MakeHuman data, once
       const { id, spec } = e.data;
       try { const r = build(spec); self.postMessage({ id, r }, transferables(r)); } catch (err) { self.postMessage({ id, error: String((err && err.stack) || err) }); }
     };
@@ -1915,5 +2258,5 @@ export function charBuilderMain() {
   // bone rest offsets and bind (A-pose) rotations for a spec, without building any geometry
   function rig(spec) { return makeRig(spec).bones.map((b) => ({ name: b.name, parent: b.parent, off: b.off, rot: b.rot })); }
   const landmarks = (g) => baseLandmarks({ f: g === 'f' });
-  return { build, rig, transferables, landmarks, REG, MAT, BONES, VERSION: 19, _dbg: { makeRig, hairLayer, headLayer, headLandmarks } };
+  return { build, rig, transferables, landmarks, setMH, REG, MAT, BONES, VERSION: 22, _dbg: { makeRig, hairLayer, headLayer, headLandmarks, mhHead } };
 }

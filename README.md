@@ -56,7 +56,8 @@ python3 tools/build_map.py          # regenera data/map.json desde OpenStreetMap
 - `data/map.json` — el pueblo ya procesado; `data/guarena.osm` el callejero de partida (los edificios del
   Catastro se descargan con `tools/fetch_catastro.py`)
 - `tools/` — empaquetado, servidor local, mapa y pruebas automáticas: `audit.js` recorre todas las calles a pie
-  y en coche, `missionbot.js` juega las misiones, `playtest.js` conduce, pelea, hace de taxista…
+  y en coche, `missionbot.js` juega las misiones, `playtest.js` conduce, pelea, hace de taxista… `faces.js`
+  retrata a los personajes de cerca
 - `multijugador/` — el servidor de la sala · `.github/workflows/pages.yml` — publica el juego en GitHub Pages
 
 Si defines la variable de repositorio `GUARENA_MP_URL` con la dirección del servidor, la copia de GitHub Pages
@@ -69,5 +70,7 @@ enlaza con él desde la pantalla *Multijugador*.
 - Edificios: Dirección General del Catastro (servicio INSPIRE), reutilizables citando la fuente.
 - Texturas fotográficas: [Poly Haven](https://polyhaven.com) (CC0). Sonidos de terror y zombis:
   [OpenGameArt](https://opengameart.org) (CC0).
+- Caras, ojos, cejas, pestañas y peinados: [MakeHuman](http://www.makehumancommunity.org) (CC0: la malla base,
+  sus deformaciones y los recursos del sistema). `tools/mh_import.py` los convierte en `assets/mh/`.
 - Personajes, vehículos, historias y misiones son ficticios. Los bares y comercios llevan nombres inventados:
   ningún negocio real aparece por su nombre.

@@ -17,6 +17,9 @@ export function randomShape(rnd = Math.random, g = null) {
   const f = g ? g === 'f' : rnd() < 0.5;
   const age = rnd() < 0.2 ? 'mayor' : rnd() < 0.5 ? 'joven' : 'adulto';
   const d = { gender: f ? 'f' : 'm', ageGroup: age, elderly: age === 'mayor' };
+  // ancestry (the shape of the face; the skin colour follows it): mostly from here, some from Africa, a few from East Asia
+  const ar = rnd();
+  d.anc = ar < 0.08 ? 'a' : ar < 0.13 ? 's' : 'c';
   d.height = +(f ? 0.93 + rnd() * 0.1 : 0.95 + rnd() * 0.1).toFixed(2);
   d.build = +(0.9 + rnd() * rnd() * 0.4 + (age === 'mayor' ? 0.05 : 0)).toFixed(2);
   d.muscle = f ? 0 : +(rnd() * rnd()).toFixed(2);
@@ -43,7 +46,8 @@ export function randomShape(rnd = Math.random, g = null) {
 // colours that suit the person and what they wear
 export function colorize(d, rnd = Math.random) {
   const f = d.gender === 'f', old = d.ageGroup === 'mayor' || d.elderly;
-  d.skinColor = SKINS[Math.min(SKINS.length - 1, Math.floor(Math.pow(rnd(), 1.4) * SKINS.length))];
+  const anc = d.anc || 'c';
+  d.skinColor = anc === 'a' ? SKINS[8 + Math.floor(rnd() * 4)] : anc === 's' ? SKINS[1 + Math.floor(rnd() * 4)] : SKINS[Math.min(7, Math.floor(Math.pow(rnd(), 1.4) * 8))];
   d.eyes = pick(EYES, rnd);
   d.hairColor = old ? pick(['#8a8580', '#d9d6d0', '#b8b4ae', '#6e6a66'], rnd) : rnd() < 0.08 ? pick(HAIRS.slice(8), rnd) : pick(HAIR.slice(0, 5), rnd);
   if (f) d.lips = pick(LIPS, rnd);

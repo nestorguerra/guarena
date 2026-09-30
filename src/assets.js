@@ -45,12 +45,21 @@ function embedded(path) {
   return u;
 }
 
+// asset bytes by path under assets/ (embedded copy first), or null
+export async function loadAssetBytes(path) {
+  const bytes = embedded(path);
+  if (bytes) return bytes;
+  try {
+    const r = await fetch(ASSET_BASE + path);
+    return r.ok ? new Uint8Array(await r.arrayBuffer()) : null;
+  } catch (e) { return null; }
+}
 // asset image by path under assets/ (embedded copy first); resolves to a canvas or image, or null
-async function loadAssetImage(path) {
+export async function loadAssetImage(path) {
   const bytes = embedded(path);
   if (bytes) {
     try {
-      const bmp = await createImageBitmap(new Blob([bytes], { type: 'image/jpeg' }));
+      const bmp = await createImageBitmap(new Blob([bytes], { type: /\.png$/i.test(path) ? 'image/png' : /\.webp$/i.test(path) ? 'image/webp' : 'image/jpeg' }));
       const c = document.createElement('canvas');
       c.width = bmp.width; c.height = bmp.height;
       c.getContext('2d').drawImage(bmp, 0, 0);
