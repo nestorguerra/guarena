@@ -83,7 +83,8 @@ export class Game {
   async init(progress) {
     const q = this.q;
     const r = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: !q.bloom, powerPreference: 'high-performance', stencil: false });
-    r.setPixelRatio(Math.min(devicePixelRatio || 1, q.pr));
+    // (the anime look's ink lines want the screen's own resolution on high quality; dynamic resolution backs off if needed)
+    r.setPixelRatio(Math.min(devicePixelRatio || 1, STYLE.anime && this.qKey === 'alta' ? 2 : q.pr));
     r.setSize(innerWidth, innerHeight, false);
     r.outputColorSpace = THREE.SRGBColorSpace;
     r.toneMapping = THREE.ACESFilmicToneMapping;

@@ -35,8 +35,8 @@ const KEYS_ANIME = [
   { a: -0.08, zen: 0x1d2c5e, hor: 0x5b4a78, warm: 0xb0677a, gnd: 0x1e1c2c, sun: 0x6a3a2a },
   { a: 0.0, zen: 0x3f5f9e, hor: 0xf0a880, warm: 0xffb27a, gnd: 0x5a4a48, sun: 0xff9a5a },
   { a: 0.12, zen: 0x4a8cc0, hor: 0xf3d2a8, warm: 0xffd3a0, gnd: 0x9a8c78, sun: 0xffd6a0 },
-  { a: 0.35, zen: 0x46a2c6, hor: 0xbfe6df, warm: 0xdff2ea, gnd: 0xb9b4a0, sun: 0xfff4de },
-  { a: 1.0, zen: 0x3f9cc4, hor: 0xb5e2dc, warm: 0xd6efe8, gnd: 0xbdb8a4, sun: 0xffffff },
+  { a: 0.35, zen: 0x3f9dc4, hor: 0xa9dcd6, warm: 0xd3ede5, gnd: 0xb9b4a0, sun: 0xfff4de },
+  { a: 1.0, zen: 0x3897c0, hor: 0x9fd6d1, warm: 0xc9e9e1, gnd: 0xbdb8a4, sun: 0xffffff },
 ];
 const _ca = new THREE.Color(), _cb = new THREE.Color();
 const NIGHT_FILL = new THREE.Color(0.27, 0.33, 0.47), NIGHT_GND = new THREE.Color(0.11, 0.1, 0.09);
