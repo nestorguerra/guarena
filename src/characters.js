@@ -2,6 +2,7 @@
 // coloured per person, two LODs sharing one skeleton, animated procedurally (walk, run, punch, sit, drive,
 // talk, blink, gaze...). Skin, cloth, denim, hair and eyes get their own shading in one material.
 import * as THREE from 'three';
+import { STYLE } from './style.js';
 import { charBuilderMain } from './charbuild.js';
 import { mhLib } from './mhdata.js';
 import { loadAssetBytes, loadAssetImage } from './assets.js';
@@ -139,10 +140,41 @@ function mhTex(file, srgb = true, ph = '#c89a80') {
   t.anisotropy = 4;
   t.needsUpdate = true;
   // (dispose first: once drawn, the 1-pixel stand-in's storage is fixed in size and would not take the image)
-  const p = loadAssetImage('mh/' + file).then((im) => { if (im) { t.dispose(); t.image = im; t.needsUpdate = true; } }).finally(() => mhLoading.delete(p));
+  const p = loadAssetImage('mh/' + file).then((im) => { if (im) { t.dispose(); t.image = STYLE.anime && file.startsWith('eye_') ? animeEye(im) : im; t.needsUpdate = true; } }).finally(() => mhLoading.delete(p));
   mhLoading.add(p);
   mhTexCache.set(file, t);
   return t;
+}
+// the anime look's eyes, painted over MakeHuman's layout (two eyeballs on the sheet): a big flat iris in the person's
+// colour, darker at the top under the lid, a pupil, two white glints; a flat white round it
+function animeEye(im) {
+  const S = 256, c = document.createElement('canvas'); c.width = c.height = S;
+  const x = c.getContext('2d', { willReadFrequently: true });
+  x.drawImage(im, 0, 0, S, S);
+  const d = x.getImageData(0, 0, S, S).data;
+  // find each iris (the dark pixels in each half of the sheet) and its mean colour
+  const eyes = [[0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0]];
+  for (let y = 0; y < S; y++) for (let xx = 0; xx < S; xx++) {
+    const i = (y * S + xx) * 4, L = 0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2];
+    if (L > 120) continue;
+    const e = eyes[xx + (S - y) > S ? 1 : 0];
+    e[0] += xx; e[1] += y; e[2]++; if (L > 35) { e[3] += d[i]; e[4] += d[i + 1]; e[5] += d[i + 2]; e[6]++; }
+  }
+  x.fillStyle = '#f4f1ec'; x.fillRect(0, 0, S, S);
+  for (const e of eyes) {
+    if (!e[2]) continue;
+    const cx = e[0] / e[2], cy = e[1] / e[2], r = Math.sqrt(e[2] / Math.PI) * 1.18;
+    const ic = e[6] ? [e[3] / e[6], e[4] / e[6], e[5] / e[6]] : [80, 50, 30];
+    const col = (k, a = 1) => `rgba(${Math.min(255, ic[0] * k) | 0},${Math.min(255, ic[1] * k) | 0},${Math.min(255, ic[2] * k) | 0},${a})`;
+    const g = x.createLinearGradient(cx, cy - r, cx, cy + r);
+    g.addColorStop(0, col(0.45)); g.addColorStop(0.55, col(1.05)); g.addColorStop(1, col(1.45));
+    x.fillStyle = g; x.beginPath(); x.arc(cx, cy, r, 0, Math.PI * 2); x.fill();
+    x.strokeStyle = col(0.35); x.lineWidth = r * 0.12; x.beginPath(); x.arc(cx, cy, r * 0.94, 0, Math.PI * 2); x.stroke();
+    x.fillStyle = 'rgb(18,14,16)'; x.beginPath(); x.arc(cx, cy, r * 0.42, 0, Math.PI * 2); x.fill();
+    x.fillStyle = '#fff'; x.beginPath(); x.arc(cx + r * 0.32, cy - r * 0.34, r * 0.24, 0, Math.PI * 2); x.fill();
+    x.fillStyle = 'rgba(255,255,255,0.8)'; x.beginPath(); x.arc(cx - r * 0.3, cy + r * 0.36, r * 0.11, 0, Math.PI * 2); x.fill();
+  }
+  return c;
 }
 // the small ones (eyes, brows, lashes, masks, haircuts) are fetched as soon as the heads are, so no face appears without them
 function mhPreload() {
@@ -505,6 +537,9 @@ float cMHHair(inout vec3 col, vec3 skinC, vec3 F, vec3 P, float lipA, float fem,
   float strd = cNoise(vec3(F.x * 1300.0, F.y * 240.0, F.z * 1300.0)) * fa(0.0009); // single hairs, growing down
   float str2 = cNoise(vec3(F.x * 3400.0, F.y * 700.0, F.z * 3400.0)) * fa(0.0004);
   float dots = mix(0.5, cNoise(P * 1400.0), fa(0.0008));
+  #ifdef ANIME
+  strd = 0.55; str2 = 0.5; dots = 0.5; fine = 0.5; rag = 0.5 + (rag - 0.5) * 0.3; // (painted as patches, not hair by hair)
+  #endif
   float sc = fem > 0.5 ? hm.g : mix(hm.r, max(hm.r, hm.g * 0.93), uMHStyle.w), cov = 0.0;
   if (uMHStyle.y > 0.5) { // bald on top: a fringe round the sides and the back, bare (and a little shiny) above it
     float crown = smoothstep(0.066, 0.094, F.y + 0.3 * max(F.z - 0.02, 0.0) + (rag - 0.5) * 0.014 + (fine - 0.5) * 0.004);
@@ -513,12 +548,18 @@ float cMHHair(inout vec3 col, vec3 skinC, vec3 F, vec3 P, float lipA, float fem,
   }
   // (the edge: a few millimetres where single hairs thin out, not a line)
   float sd = smoothstep(0.12, 0.82, sc + (fine - 0.5) * 0.3 * fa(0.002) + (rag - 0.5) * 0.22) * uMHStyle.x;
+  #ifdef ANIME
+  sd = smoothstep(0.36, 0.5, sc + (rag - 0.5) * 0.2) * uMHStyle.x;
+  #endif
   vec3 hc = uHair * (0.58 + 0.5 * strd) + vec3(0.02, 0.015, 0.01) * str2;
   float sk = sd * mix(0.95, 0.5 + 0.38 * dots, uMHStyle.z) * mix(0.55 + 0.45 * strd, 1.0, smoothstep(0.45, 0.85, sc));
   col = mix(col, hc, sk); cov = max(cov, sk);
   gRough = mix(gRough, 0.7, sd); gBumpH += sd * (strd - 0.5) * 0.0004;
   // stubble, and the blue-grey of a shaven jaw
   float bz = max(hm.b, hm.a) * (1.0 - lipA), bzs = bz * uStubble * smoothstep(0.15, 0.55, bz + (rag - 0.5) * 0.3);
+  #ifdef ANIME
+  bzs = uStubble * smoothstep(0.4, 0.55, bz) * 0.55;
+  #endif
   col = mix(col, uBrow * 0.7, bzs * (0.35 + 0.45 * dots));
   col = mix(col, mix(col, vec3(0.3, 0.34, 0.36), 0.2), bzs * (1.0 - fem) * 0.5);
   if (uBeard > 0.5) { // moustache (the upper part of the goatee's mask), goatee, short or full: hair by hair, ragged at the edge
@@ -526,6 +567,9 @@ float cMHHair(inout vec3 col, vec3 skinC, vec3 F, vec3 P, float lipA, float fem,
     float m = (bst == 1 ? hm.a * smoothstep(-0.044, -0.037, F.y) : bst == 2 ? hm.a : max(hm.b, hm.a)) * (1.0 - lipA);
     // thick on the chin and the lip, thinning out up the cheeks, the edge ragged and sparse
     float dens = smoothstep(0.18, 0.9, m + (rag - 0.5) * 0.42 + (fine - 0.5) * 0.25 * fa(0.002));
+    #ifdef ANIME
+    dens = smoothstep(0.38, 0.52, m + (rag - 0.5) * 0.2);
+    #endif
     float hairs = smoothstep(0.25, 0.75, strd * 0.65 + str2 * 0.35 + dens * 0.35);
     vec3 bc = uBrow * (0.5 + 0.55 * strd) + vec3(0.03, 0.022, 0.016) * str2;
     float cover = dens * mix(0.4, bst == 4 ? 0.96 : bst == 3 ? 0.86 : 0.92, hairs) * (0.78 + 0.22 * smoothstep(0.5, 1.0, dens));
@@ -891,6 +935,14 @@ function makeCharMaterial(uniforms) {
     vec3 F = vFace; float fem = uFem;
     vec3 col = texture2D(uMHSkin, vUV2).rgb * clamp(diffuseColor.rgb / max(uMHMean, vec3(0.02)), vec3(0.0), vec3(3.0));
     vec4 fm = texture2D(uMHLips, vUV2); float lipA = fm.r; // (the lips; g: a goatee's hair)
+    #ifdef ANIME
+    { // painted, not photographed: the person's own colour, rosy lips, a blush on the cheeks
+      col = mix(diffuseColor.rgb, col, 0.07);
+      col = mix(col, col * vec3(1.05, 0.76, 0.74), lipA * 0.55);
+      float bl = exp(-pow((abs(F.x) - 0.04) / 0.018, 2.0) - pow((F.y - 0.05) / 0.014, 2.0)) * smoothstep(0.02, 0.05, F.z);
+      col = mix(col, col * vec3(1.06, 0.84, 0.84), bl * 0.5);
+    }
+    #endif
     col = mix(col, col * mix(vec3(1.0), uLip / max(diffuseColor.rgb, vec3(0.02)), 0.6), lipA * uMakeup * fem * 0.6); // a touch of lipstick
     float n = cNoise(P * 300.0) * fa(0.0035), n2 = cNoise(P * 900.0) * fa(0.0012);
     // down the neck the photograph gives way to the plain skin of the sculpted neck it is stitched to (no seam)
@@ -912,6 +964,10 @@ function makeCharMaterial(uniforms) {
     if (a < 0.04) discard;
     diffuseColor.a = clamp((a - 0.04) * 1.3, 0.0, 1.0);
     diffuseColor.rgb = (mc == 19 ? uBrow * 0.72 : vec3(0.022, 0.018, 0.016)) * (0.7 + 0.6 * dot(t.rgb, vec3(0.333)));
+    #ifdef ANIME
+    diffuseColor.a = smoothstep(mc == 19 ? 0.22 : 0.16, mc == 19 ? 0.42 : 0.34, a); // (one stroke, not hairs)
+    diffuseColor.rgb = mc == 19 ? uBrow * 0.55 : vec3(0.03, 0.025, 0.03);
+    #endif
     gRough = mc == 19 ? 0.62 : 0.45;
   }
   else if (mc == 21) { diffuseColor.rgb = vec3(0.8, 0.76, 0.68) * 0.62; gRough = 0.3; } // teeth (in the mouth's shade)
@@ -920,7 +976,12 @@ function makeCharMaterial(uniforms) {
     if (t.a < 0.05) discard;
     diffuseColor.a = clamp((t.a - 0.05) * 1.35, 0.0, 1.0);
     float l = t.r;
+    #ifdef ANIME
+    diffuseColor.a = smoothstep(0.24, 0.46, t.a);                    // (locks with a clean edge)
+    diffuseColor.rgb *= 0.82 + 0.3 * smoothstep(0.42, 0.58, l);      // two tones of the colour
+    #else
     diffuseColor.rgb *= (0.28 + 1.44 * l) * (0.94 + 0.12 * cNoise(P * 40.0));
+    #endif
     gRough = 0.46 + 0.2 * (1.0 - l); gSheen = 0.45; gBumpH = (l - 0.5) * 0.0004;
     gHairT = normalize(vHairT); gHairK = 1.0 - 0.6 * uCurl;
   }
@@ -947,7 +1008,7 @@ function makeCharMaterial(uniforms) {
     gRough = mix(gRough, 0.35, bl);
   }
 }`)
-      .replace('#include <lights_physical_pars_fragment>', THREE.ShaderChunk.lights_physical_pars_fragment.replace(
+      .replace('#include <lights_physical_pars_fragment>', STYLE.anime ? '#include <lights_physical_pars_fragment>' : THREE.ShaderChunk.lights_physical_pars_fragment.replace(
         'reflectedLight.directDiffuse += irradiance * BRDF_Lambert( material.diffuseColor );',
         'reflectedLight.directDiffuse += (gSkin > 0.5 ? cSkinIrr(dot(geometryNormal, directLight.direction)) * directLight.color : irradiance) * BRDF_Lambert( material.diffuseColor );'))
       .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
@@ -959,6 +1020,9 @@ normal = cBump(normal, gBumpH, faceDirection);`)
       .replace('#include <lights_physical_fragment>', `#include <lights_physical_fragment>
 material.sheenColor = mix(vec3(0.0), (int(vMat + 0.5) <= 2 || int(vMat + 0.5) == 15 || int(vMat + 0.5) == 17) ? vec3(0.32, 0.12, 0.08) : diffuseColor.rgb * 0.6 + 0.06, clamp(gSheen, 0.0, 1.0));
 material.sheenRoughness = (int(vMat + 0.5) <= 2 || int(vMat + 0.5) == 15 || int(vMat + 0.5) == 17) ? 0.5 : 0.75;
+#ifdef ANIME
+material.sheenColor *= 0.25;
+#endif
 { int mcs = int(vMat + 0.5);
   float spk = (mcs <= 2 || mcs == 15 || mcs == 17) ? 0.7 : (mcs >= 3 && mcs <= 6) ? 0.4 : (mcs == 11 || mcs == 12 || mcs == 18) ? 1.6 : (mcs == 10 || mcs == 19 || mcs == 22) ? 0.22 : (mcs == 16 || mcs == 20) ? 0.3 : 1.0;
   material.specularColor *= spk;
@@ -972,17 +1036,26 @@ if (gHairK > 0.0) {
   float nl = clamp(dot(normal, Lh), 0.0, 1.0);
   float lit = clamp(dot(reflectedLight.directDiffuse, vec3(0.333)) / (dot(diffuseColor.rgb * directionalLights[0].color, vec3(0.333)) * nl * RECIPROCAL_PI + 1e-4), 0.0, 1.0);
   float th2 = dot(normalize(Tn + normal * 0.18), Hh), sn2 = sqrt(max(0.0, 1.0 - th2 * th2)); // the secondary lobe, tinted by the hair
+  #ifdef ANIME
+  vec3 band = directionalLights[0].color * smoothstep(0.972, 0.986, sn) * 0.11 * (diffuseColor.rgb * 1.5 + 0.3) * step(0.05, nl) * lit * gHairK; // one clean ring of light
+  #else
   vec3 band = directionalLights[0].color * (pow(sn, 140.0) * 0.055 * (diffuseColor.rgb * 1.6 + 0.35) + pow(sn2, 26.0) * 0.045 * (diffuseColor.rgb * 3.5 + 0.06)) * nl * lit * gHairK;
+  #endif
   reflectedLight.directSpecular += band;
 }
 #endif`)
       .replace('#include <aomap_fragment>', `#include <aomap_fragment>
 { int mca = int(vMat + 0.5); float ao = (mca <= 2 || mca == 15 || mca == 17) ? mix(vAO, 1.0, 0.3) : mca == 21 ? 0.4 : vAO; // skin: lighter creases; the teeth, inside
   reflectedLight.indirectDiffuse *= ao; reflectedLight.indirectSpecular *= ao;
-  reflectedLight.directDiffuse *= mix(1.0, ao, 0.45); reflectedLight.directSpecular *= mix(1.0, ao, 0.6); }`);
+  reflectedLight.directDiffuse *= mix(1.0, ao, 0.45); reflectedLight.directSpecular *= mix(1.0, ao, 0.6);
+  #ifdef ANIME
+  reflectedLight.indirectDiffuse *= mix(vec3(1.0), vec3(1.2, 0.97, 0.92), gSkin); // (skin in shade is warm, not grey)
+  #endif
+}`);
   };
   m.alphaToCoverage = true; // (brows and lashes; every other class writes alpha 1)
-  m.customProgramCacheKey = () => 'char14';
+  if (STYLE.anime) m.defines = { ANIME: '' };
+  m.customProgramCacheKey = () => 'char14' + (STYLE.anime ? 'a' : '');
   return m;
 }
 

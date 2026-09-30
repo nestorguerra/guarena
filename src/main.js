@@ -9,6 +9,8 @@ let GameAudio;
 try { ({ GameAudio } = await import('./audio.js')); } catch (e) { console.warn('audio.js unavailable, using silent audio', e); }
 if (typeof GameAudio !== 'function') ({ GameAudio } = await import('./audio_stub.js'));
 import { safeStorage, clamp } from './util.js';
+import { STYLE, setStyle } from './style.js';
+import { installToonChunks } from './toon.js';
 
 const $ = (id) => document.getElementById(id);
 const ui = {
@@ -69,6 +71,12 @@ async function boot(hot = {}) {
   try { audio = safeAudio(new GameAudio()); } catch (e) { console.warn(e); audio = safeAudio({ stationName: 'Radio Apagada' }); }
   const raw = await loadMapData();
   const q = defaultQuality(store);
+  // the look (anime unless the player chose the photographic one): it has to be set before anything is built
+  let style = null;
+  try { style = JSON.parse(store?.getItem('guarena_save') || '{}').style; } catch (e) { /* ignore */ }
+  setStyle(style || 'anime');
+  if (STYLE.anime) installToonChunks();
+  document.body.dataset.look = STYLE.name;
   game = new Game({ canvas: ui.canvas, ui, raw, quality: q, audio });
   refreshSavedCharacter();
   ui.onPause = () => openPause();
@@ -477,6 +485,7 @@ function settingsHtml() {
   const times = [['Mañana', 10], ['Tarde', 17], ['Atardecer', 19.9], ['Noche', 23]];
   return `
     <div class="setting"><span>Calidad gráfica <small style="opacity:.6">(se aplica al recargar)</small></span><span class="seg" id="sQ">${Object.entries(QUALITY).map(([k, v]) => `<button data-q="${k}" class="${k === q ? 'on' : ''}">${v.name}</button>`).join('')}</span></div>
+    <div class="setting"><span>Estilo visual <small style="opacity:.6">(se aplica al recargar)</small></span><span class="seg" id="sS"><button data-s="anime" class="${STYLE.anime ? 'on' : ''}">Anime</button><button data-s="real" class="${STYLE.anime ? '' : 'on'}">Realista</button></span></div>
     <div class="setting"><span>Resolución <small style="opacity:.6">(automática: baja un poco solo si el juego va a tirones)</small></span><span class="seg" id="sR"><button data-r="auto" class="${game.save.dynRes !== false ? 'on' : ''}">Automática</button><button data-r="fija" class="${game.save.dynRes === false ? 'on' : ''}">Fija</button></span></div>
     <div class="setting"><span>Hora del día</span><span class="seg" id="sT">${times.map(([n, h]) => `<button data-h="${h}">${n}</button>`).join('')}</span></div>
     <div class="setting"><span>Música (radio)</span><input id="sMus" type="range" min="0" max="1" step="0.05" value="${game.save.music ?? 0.55}"></div>
@@ -491,6 +500,14 @@ function bindSettings() {
     const seg = $('sQ'); let rl = $('sQReload');
     if (b.dataset.q !== game.qKey) {
       if (!rl) { rl = document.createElement('button'); rl.id = 'sQReload'; rl.className = 'btn ghost'; rl.style.cssText = 'margin-left:8px;padding:6px 12px;font-size:14px'; rl.textContent = 'Recargar ahora'; rl.onclick = () => { game.persist(); location.reload(); }; seg.after(rl); }
+    } else if (rl) rl.remove();
+  }));
+  document.querySelectorAll('#sS button').forEach((b) => (b.onclick = () => {
+    game.save.style = b.dataset.s; game.persist();
+    document.querySelectorAll('#sS button').forEach((x) => x.classList.toggle('on', x === b));
+    const seg = $('sS'); let rl = $('sSReload');
+    if (b.dataset.s !== STYLE.name) {
+      if (!rl) { rl = document.createElement('button'); rl.id = 'sSReload'; rl.className = 'btn ghost'; rl.style.cssText = 'margin-left:8px;padding:6px 12px;font-size:14px'; rl.textContent = 'Recargar ahora'; rl.onclick = () => { game.persist(); location.reload(); }; seg.after(rl); }
     } else if (rl) rl.remove();
   }));
   document.querySelectorAll('#sR button').forEach((b) => (b.onclick = () => { game.save.dynRes = b.dataset.r === 'auto'; game.persist(); document.querySelectorAll('#sR button').forEach((x) => x.classList.toggle('on', x === b)); }));

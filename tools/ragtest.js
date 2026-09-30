@@ -5,9 +5,11 @@ import { PLAYER_PRESETS } from '/src/characters.js';
 import { build, SPOT } from '/tools/faces.js';
 const G = () => window.game;
 async function post(name, url) { await fetch('/__snap?name=' + name, { method: 'POST', body: url }); }
-function size(w, h) { const g = G(); g.renderer.setSize(w, h, false); if (g.composer) { g.composer.setSize(w, h); if (g.bloom) g.bloom.setSize(w, h); } }
+function size(w, h) { const g = G(); g.renderer.setSize(w, h, false); if (g.composer) { g.composer.setSize(w, h); if (g.bloom) g.bloom.setSize(w, h); } if (g.toon) g.toon.setSize(w, h); }
 function render(cam) {
-  const g = G(), keep = g.camera; g.camera = cam; if (g.composer) g.composer.passes[0].camera = cam;
+  const g = G(), keep = g.camera;
+  if (g.renderView) { g.camera = cam; try { g.renderView(cam); } finally { g.camera = keep; } return; }
+  g.camera = cam; if (g.composer) g.composer.passes[0].camera = cam;
   try { if (g.composer) g.composer.render(); else g.renderer.render(g.scene, cam); } finally { g.camera = keep; if (g.composer) g.composer.passes[0].camera = keep; }
 }
 export const env = () => { const g = G(); return { floor: () => 0, collide: (p, r) => g.map.collider.resolveCircle(p, r) }; };

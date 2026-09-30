@@ -2,6 +2,8 @@
 // page carries them inside itself (#assetdata: path -> base64); a dev page loads them from assets/ next to it.
 // Everything is optional: if a file can't be loaded the game keeps its procedural fallback.
 import * as THREE from 'three';
+import { STYLE } from './style.js';
+import { toonifyLayers } from './toon.js';
 
 export const ASSET_BASE = (() => {
   try { return new URL('assets/', document.baseURI).href; } catch (e) { return 'assets/'; }
@@ -120,7 +122,18 @@ export function loadTexture(name, suffix = '_d', { srgb = true, repeat = 1 } = {
   t.anisotropy = 8;
   if (srgb) t.colorSpace = THREE.SRGBColorSpace;
   t.repeat.set(repeat, repeat);
-  loadAssetImage('tex/' + name + suffix + '.jpg').then((im) => { if (im) { t.image = im; t.needsUpdate = true; } });
+  loadAssetImage('tex/' + name + suffix + '.jpg').then((im) => {
+    if (!im) return;
+    if (STYLE.anime && suffix === '_d') { // repainted flat, like the rest of the anime town
+      const S = Math.min(512, im.width || 512), c = document.createElement('canvas'); c.width = c.height = S;
+      const x = c.getContext('2d', { willReadFrequently: true }); x.drawImage(im, 0, 0, S, S);
+      const id = x.getImageData(0, 0, S, S);
+      toonifyLayers(id.data, S, 1, { rColor: 6, rEdge: 2, levels: 5, posterize: 0.8, ink: 0.4, edge0: 20, edge1: 44 });
+      x.putImageData(id, 0, 0);
+      t.image = c;
+    } else t.image = im;
+    t.needsUpdate = true;
+  });
   texCache.set(key, t);
   return t;
 }

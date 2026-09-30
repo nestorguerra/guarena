@@ -9,7 +9,7 @@
 <title>Guareña Vegas Altas</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anton&family=Barlow+Condensed:wght@500;600;700;800&family=Barlow:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anton&family=Barlow+Condensed:wght@500;600;700;800&family=Barlow:wght@400;500;600&family=Dela+Gothic+One&family=Zen+Maru+Gothic:wght@500;700;900&display=swap">
 <style>
 :root {
   color-scheme: dark;
@@ -613,6 +613,42 @@ input[type=range] { width: 150px; accent-color: var(--trigo); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
+
+/* ---------------- the anime look (after the web game Messenger): teal skies, cream paper, ink outlines, rounded
+   Japanese-style type. Applies when <body data-look="anime"> (the default; Ajustes › Estilo visual). */
+body[data-look="anime"] {
+  --display: 'Dela Gothic One', 'Anton', 'Impact', sans-serif;
+  --cond: 'Zen Maru Gothic', 'Barlow Condensed', 'Arial Narrow', sans-serif;
+  --body: 'Zen Maru Gothic', 'Barlow', system-ui, -apple-system, sans-serif;
+  --ink: #1b2830;
+  --panel: rgba(27, 44, 54, 0.88);
+  --panel-2: rgba(27, 44, 54, 0.62);
+  --teja: #e5794f; --teja-d: #a9492a; --trigo: #ffd36e; --money: #b4f5c4;
+}
+body[data-look="anime"] #loading { background: linear-gradient(180deg, #8bd0ca 0%, #72bfba 58%, #5aa8a7 100%); }
+body[data-look="anime"] .brand .big { color: #fbf7ee; -webkit-text-stroke: 3px var(--ink); paint-order: stroke fill; text-shadow: 7px 7px 0 var(--ink); transform: none; letter-spacing: 0.02em; }
+body[data-look="anime"] .brand .sub { color: var(--ink); }
+body[data-look="anime"] .brand .sub i { background: var(--ink); }
+body[data-look="anime"] #loadBar { background: rgba(251, 250, 245, 0.55); border: 2.5px solid var(--ink); height: 12px; border-radius: 7px; box-shadow: 3px 3px 0 var(--ink); }
+body[data-look="anime"] #loadBar b { background: #f6c64f; }
+body[data-look="anime"] #loadText, body[data-look="anime"] .tip { color: var(--ink); }
+body[data-look="anime"] #menu { background: linear-gradient(90deg, rgba(20, 42, 50, 0.7) 0%, rgba(20, 42, 50, 0.32) 40%, rgba(20, 42, 50, 0) 66%), linear-gradient(0deg, rgba(20, 42, 50, 0.55), rgba(20, 42, 50, 0) 45%); }
+body[data-look="anime"] .menuList button { text-shadow: 3px 3px 0 var(--ink); font-weight: 900; }
+body[data-look="anime"] .menuList button::after { height: 5px; background: var(--trigo); box-shadow: 2px 2px 0 var(--ink); }
+body[data-look="anime"] .btn { border: 3px solid var(--ink); box-shadow: 4px 4px 0 var(--ink); border-radius: 12px; }
+body[data-look="anime"] .selName .n, body[data-look="anime"] .edName { -webkit-text-stroke: 2.5px var(--ink); paint-order: stroke fill; text-shadow: 6px 6px 0 var(--ink); }
+/* the HUD: filled letters with an ink outline and a flat offset shadow, like a manga caption */
+body[data-look="anime"] #money { color: var(--money); -webkit-text-stroke: 2px var(--ink); text-shadow: 3px 3px 0 var(--ink); }
+body[data-look="anime"] #clock, body[data-look="anime"] #street, body[data-look="anime"] #district, body[data-look="anime"] #wState { -webkit-text-stroke: 1.2px var(--ink); paint-order: stroke fill; text-shadow: 2px 2px 0 var(--ink); }
+body[data-look="anime"] #banner .bt { -webkit-text-stroke: 3px var(--ink); text-shadow: 6px 6px 0 var(--ink); }
+body[data-look="anime"] #banner .bs { text-shadow: 2px 2px 0 var(--ink); }
+body[data-look="anime"] #stars i.on { background: #fff6d6; filter: drop-shadow(2px 2px 0 var(--ink)); }
+/* speech and subtitles: a white card with an ink border and the speaker's name in blue (the reference's dialogue box) */
+body[data-look="anime"] #subs { background: #fbfaf5; color: var(--ink); border: 2.5px solid var(--ink); border-radius: 6px; box-shadow: 5px 5px 0 rgba(27, 40, 48, 0.9); text-shadow: none; padding: 10px 18px; }
+body[data-look="anime"] #subs b { color: #2b7fae; }
+body[data-look="anime"] #objective { text-shadow: 2px 2px 0 var(--ink), -1px -1px 0 var(--ink), 1px -1px 0 var(--ink), -1px 1px 0 var(--ink); }
+body[data-look="anime"] #help, body[data-look="anime"] .note, body[data-look="anime"] #prompt, body[data-look="anime"] #orderMenu, body[data-look="anime"] .listMenu { border: 2px solid rgba(251, 250, 246, 0.8); box-shadow: 4px 4px 0 var(--ink); }
+body[data-look="anime"] #phone { border-color: var(--ink); box-shadow: 6px 6px 0 var(--ink); }
 </style>
 <canvas id="game"></canvas>
 
@@ -673,6 +709,7 @@ input[type=range] { width: 150px; accent-color: var(--trigo); }
   </div>
 </div>
 
+<script>try { document.body.dataset.look = JSON.parse(localStorage.getItem('guarena_save') || '{}').style === 'real' ? 'real' : 'anime'; } catch (e) { document.body.dataset.look = 'anime'; }</script>
 <div id="loading" class="screen">
   <div class="brand"><span class="big">Guareña</span><span class="sub"><i></i>Vegas Altas · Extremadura</span></div>
   <div id="loadBar"><b></b></div>

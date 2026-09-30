@@ -5,6 +5,8 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { STYLE } from './style.js';
+import { ToonPipeline } from './toon.js';
 import { MapData } from './mapdata.js';
 import { World } from './world.js';
 import { SkySystem } from './sky.js';
@@ -167,8 +169,11 @@ export class Game {
     this.buildLabels();
     const lm = this.world.landmarks.poi;
     if (lm.churchTower) this.audio.setChurchPos(lm.churchTower.x, lm.churchTower.z);
-    // post-processing
-    if (q.bloom) {
+    // post-processing: the anime look draws its ink lines and grade in one last pass (no bloom); the real one blooms
+    if (STYLE.anime) {
+      this.toon = new ToonPipeline(r, { msaa: this.qKey === 'baja' ? 0 : 4 });
+      r.toneMapping = THREE.CustomToneMapping; // (what is drawn straight to the screen gets the pipeline's curve)
+    } else if (q.bloom) {
       const rt = new THREE.WebGLRenderTarget(innerWidth, innerHeight, { type: THREE.HalfFloatType, samples: 4 });
       this.composer = new EffectComposer(r, rt);
       this.composer.addPass(new RenderPass(this.scene, this.camera));
@@ -221,6 +226,7 @@ export class Game {
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     if (this.composer) { this.composer.setSize(w, h); this.bloom.setSize(w, h); }
+    if (this.toon) this.toon.setSize(w, h);
     if (this.retroComposer) this.retroComposer.setSize(w, h);
     const radar = this.ui.radar;
     const size = Math.round(w < 520 ? Math.min(128, w * 0.34) : h <= 500 ? Math.min(112, h * 0.3) : Math.min(230, Math.max(150, Math.min(w, h) * 0.24)));
@@ -669,6 +675,12 @@ export class Game {
     a.update(dt);
   }
 
+  // the scene through whichever pipeline is on (also used by the photo tools with their own cameras)
+  renderView(cam, overlay = null) {
+    if (this.toon) this.toon.render(this.scene, cam, { night: this.sky ? this.sky.night : 0, exposure: this.renderer.toneMappingExposure, overlay });
+    else if (this.composer) { const rp = this.composer.passes[0], keep = rp.camera; rp.camera = cam; this.composer.render(); rp.camera = keep; }
+    else this.renderer.render(this.scene, cam);
+  }
   render() {
     if (this.bloom) {
       const night = this.sky ? this.sky.night : 0;
@@ -678,10 +690,9 @@ export class Game {
     }
     const wv = this.interior && this.windowView && this.windowView.render(); // the street, drawn for the windows
     if (this.retro && this.retroComposer) { this.retroPass.uniforms.uTime.value = performance.now() / 1000; this.retroComposer.render(); }
-    else if (this.composer) this.composer.render();
-    else this.renderer.render(this.scene, this.camera);
+    else this.renderView(this.camera);
     if (wv) this.windowView.after();
-    // first-person gun on top
+    // first-person gun on top (in the anime look, through the same tone curve: CustomToneMapping)
     if (this.viewModel && this.state === 'play' && !this.retro) this.viewModel.render(this.renderer);
   }
 

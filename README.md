@@ -8,6 +8,12 @@ casas por dentro (sus ventanas dan a la calle de verdad), las tiendas del pueblo
 inventario, tu casa para decorarla y con caja fuerte, la armería, la pesca en el pantano, radio, modos de terror
 y de zombis, y multijugador con tus amigos.
 
+Desde la versión 32 se ve **como un anime**, inspirado en la estética del juego web
+[Messenger](https://messenger.abeto.co/) (Abeto): luz de dos tonos con sombras frías, contornos de tinta
+dibujados a partir de la profundidad, texturas repintadas en colores planos, cielo turquesa con nubes planas, árboles de
+copas redondeadas y caras de ojos grandes y piel lisa. El aspecto fotográfico de antes sigue en *Ajustes › Estilo
+visual › Realista*.
+
 ![Guareña desde el aire: la Iglesia de Santa María y la Plaza de España con el Ayuntamiento](docs/portada.jpg)
 
 ## Jugar

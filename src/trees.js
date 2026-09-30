@@ -5,16 +5,19 @@
 // lighter one with fewer and larger cards, and far off a billboard (its picture and normals baked at start-up).
 import * as THREE from 'three';
 import { mulberry32, clamp } from './util.js';
+import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
+import { STYLE } from './style.js';
 import { shared } from './materials.js';
 
-// ------------------------------------------------------------ leaf atlas: 8 x 5 tiles of 256 px
-const LT = 256, LC = 8, LR = 5;
+// ------------------------------------------------------------ leaf atlas: 8 x 6 tiles of 256 px
+const LT = 256, LC = 8, LR = 6;
 const TILE_NAMES = [
   'olivo_a', 'olivo_b', 'encina_a', 'encina_b', 'platano_a', 'platano_b', 'naranjo_a', 'naranjo_fruta',
   'morera_a', 'morera_b', 'pino_a', 'pino_b', 'eucalipto_a', 'chopo_a', 'higuera_a', 'cipres_a',
   'palma_hoja', 'abanico', 'adelfa_rosa', 'adelfa_blanca', 'frutal_a', 'limon_fruta', 'vid_a', 'seto_a',
   'geranio_hoja', 'geranio_rojo', 'geranio_rosa', 'gitanilla', 'cinta', 'hierba', 'hierba_seca', 'flores',
   'jaramago', 'amapola', 'margarita', 'malva', 'roseta', 'cardo', 'retama', 'avena',
+  'copa', 'copa_b',
 ];
 export const TILE = Object.fromEntries(TILE_NAMES.map((n, i) => [n, i]));
 export function tileRect(i) { const c = i % LC, r = Math.floor(i / LC); return [c / LC, 1 - (r + 1) / LR, 1 / LC, 1 / LR]; } // u0, v0, du, dv (v up)
@@ -266,6 +269,9 @@ const LEAF_RECIPES = {
   cinta: (c, a, r) => blades(c, a, r, 34, [hex('#6a9a4a'), hex('#8ab86a'), hex('#e8f0d0')], 0.45, 0.95, 5), // spider plant: long pale-striped leaves
   hierba: (c, a, r) => blades(c, a, r, 90, [hex('#5f8a3a'), hex('#6f9a42'), hex('#4f7d33'), hex('#86a04a')], 0.35, 0.9, 2.2),
   hierba_seca: (c, a, r) => blades(c, a, r, 80, [hex('#c8b27a'), hex('#b89e62'), hex('#d8c48c'), hex('#a08a58')], 0.3, 0.85, 2),
+  // the skin of the anime crowns' clumps: almost flat, a few scalloped marks of leaves a shade darker or lighter
+  copa: (c, a, r) => { c.fillStyle = a ? '#fff' : '#e8e8e8'; c.fillRect(0, 0, LT, LT); if (!a) for (let i = 0; i < 70; i++) { const x = r() * LT, y = r() * LT, R0 = 4 + r() * 7; c.strokeStyle = r() < 0.6 ? 'rgba(160,160,160,0.32)' : 'rgba(255,255,255,0.5)'; c.lineWidth = 1.8; c.beginPath(); c.arc(x, y, R0, Math.PI * 1.15, Math.PI * 1.85); c.stroke(); } },
+  copa_b: (c, a, r) => { c.fillStyle = a ? '#fff' : '#ececec'; c.fillRect(0, 0, LT, LT); if (!a) for (let i = 0; i < 40; i++) { const x = r() * LT, y = r() * LT; c.fillStyle = 'rgba(160,160,160,0.45)'; c.beginPath(); c.ellipse(x, y, 7 + r() * 8, 3 + r() * 3, r() * 3, 0, Math.PI * 2); c.fill(); } },
   // wild mustard (jaramago): branching stems, lobed leaves at the foot, sprays of little yellow flowers and pods
   jaramago: (c, a, r) => {
     basal(c, a, r, 7, 'tooth', 70, 16, hex('#557f36'), 1.2);
@@ -338,6 +344,22 @@ const LEAF_RECIPES = {
   },
   flores: (c, a, r) => { blades(c, a, r, 50, [hex('#6f9a42'), hex('#86a04a')], 0.3, 0.8, 2); balls(c, a, r, 7, hex('#d8302a'), 7); balls(c, a, r, 6, hex('#e8d23a'), 5); },
 };
+// the anime look: every painted leaf and petal in a few flat tones, with a dark rim just inside its edge
+function animeFlatten(dc, da, W, H) {
+  const lv = 5;
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const i = (y * W + x) * 4;
+    let r = dc[i], g = dc[i + 1], b = dc[i + 2];
+    const L = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    if (L > 1) { const t = (L / 255) * lv, q = ((Math.floor(t) + (t % 1 > 0.5 ? 1 : 0) * 0.85 + 0.075) / lv) * 255, m = 1 + (q / L - 1) * 0.8; r *= m; g *= m; b *= m; }
+    const a = da[i];
+    if (a > 110) { // (an edge: a transparent neighbour two pixels away)
+      const xm = Math.max(0, x - 2), xp = Math.min(W - 1, x + 2), ym = Math.max(0, y - 2), yp = Math.min(H - 1, y + 2);
+      if (da[(y * W + xm) * 4] < 110 || da[(y * W + xp) * 4] < 110 || da[(ym * W + x) * 4] < 110 || da[(yp * W + x) * 4] < 110) { r *= 0.5; g *= 0.52; b *= 0.58; }
+    }
+    dc[i] = Math.min(255, r); dc[i + 1] = Math.min(255, g); dc[i + 2] = Math.min(255, b);
+  }
+}
 // the leaf atlas as a DataTexture: colour painted over the tile's own mean colour (so filtering never pulls in a dark
 // halo), alpha painted separately
 export function makeLeafAtlas() {
@@ -357,6 +379,7 @@ export function makeLeafAtlas() {
     f(xa, true, mulberry32(77 + i * 131)); xa.restore();
   });
   const dc = xc.getImageData(0, 0, W, H).data, da = xa.getImageData(0, 0, W, H).data;
+  if (STYLE.anime) animeFlatten(dc, da, W, H);
   const out = new Uint8Array(W * H * 4);
   // rows flipped: the DataTexture's first row is the bottom (v = 0)
   for (let y = 0; y < H; y++) {
@@ -533,6 +556,7 @@ export const SPECIES = {
   canas: { kind: 'reed', H: [2.4, 3.4] },
 };
 export const SPECIES_KEYS = Object.keys(SPECIES);
+for (const k of SPECIES_KEYS) SPECIES[k].name = k;
 function specOf(name) { const s = SPECIES[name]; return s.base ? { ...SPECIES[s.base], ...s } : s; }
 
 // ------------------------------------------------------------ small vector helpers (plain arrays)
@@ -710,6 +734,77 @@ function leafCards(B, sp, sk, rnd, lod) {
     }
   }
 }
+// ------------------------------------------------------------ the anime look: crowns of rounded clumps (the way a
+// background painter draws a tree), shaded as one volume, each clump outlined by the ink pass, fruit and flowers as
+// little balls of colour
+const ANIME_LEAF = { olivo: '#93a17c', encina: '#587a4c', platano: '#7aa55c', naranjo: '#4a7a45', limonero: '#52844a', morera: '#72a35a', pino: '#577a55', eucalipto: '#8ca68e', chopo: '#8fb266', higuera: '#6f9c56', frutal: '#7ba45e', adelfa: '#5a8552', cipres: '#446448', seto: '#548453', vid: '#7aa45a' };
+const ANIME_DOTS = { naranjo: [['#f28c1c', 16, 0.075]], limonero: [['#eed63c', 14, 0.07]], adelfa: [['#ef7aa6', 26, 0.09], ['#f6f0ea', 6, 0.09]], frutal: [['#f4b0c0', 10, 0.06]] };
+const lin = (h) => hex(h).map((v) => Math.pow(v / 255, 2.2));
+const ICO = [];
+function icoMesh(detail) { // a unit icosphere with shared vertices (smooth normals, lumps that stay closed)
+  if (ICO[detail]) return ICO[detail];
+  let g = new THREE.IcosahedronGeometry(1, detail);
+  g.deleteAttribute('normal'); g.deleteAttribute('uv');
+  g = mergeVertices(g, 1e-4);
+  return (ICO[detail] = { p: g.attributes.position.array, i: g.index.array, n: g.attributes.position.count });
+}
+// one lumpy ball of foliage at c (radius r, squashed by sq vertically); normals half its own, half the crown's
+function blob(B, c, r, sq, col, sk, rnd, detail, tile, flexK, lump = 0.34, box = null) {
+  const g = icoMesh(detail), [u0, v0, du, dv] = tileRect(tile), first = B.nv;
+  const s1 = rnd() * 6.28, s2 = rnd() * 6.28, s3 = rnd() * 6.28, ph = rnd();
+  const cc = sk.C ? [sk.C[0], sk.C[1] - sk.Rr[1] * 0.25, sk.C[2]] : [c[0], c[1] - r, c[2]];
+  for (let k = 0; k < g.n; k++) {
+    const d = [g.p[k * 3], g.p[k * 3 + 1], g.p[k * 3 + 2]];
+    const w = Math.sin(d[0] * 2.7 + s1) * Math.sin(d[1] * 3.1 + s2) * Math.sin(d[2] * 2.9 + s3) + 0.35 * Math.sin(d[0] * 5.3 + s2) * Math.sin(d[2] * 4.7 + s1);
+    const kk = 1 + w * lump;
+    let P = [c[0] + d[0] * r * kk, c[1] + d[1] * r * kk * sq, c[2] + d[2] * r * kk];
+    if (box) { // a clipped shape: a rounded box (superellipsoid of exponent box.n, half sizes box.h)
+      const e = box.n, q = Math.pow(Math.pow(Math.abs(d[0]), e) + Math.pow(Math.abs(d[1]), e) + Math.pow(Math.abs(d[2]), e), -1 / e);
+      P = [c[0] + d[0] * q * box.h[0] * kk, c[1] + d[1] * q * box.h[1] * kk, c[2] + d[2] * q * box.h[2] * kk];
+    }
+    const n = nrm(add(scl(d, 0.5), scl(nrm(sub(P, cc)), 0.5)));
+    const dd = sk.C ? ellD(P, sk.C, sk.Rr) : 1;
+    const ao = (0.62 + 0.38 * sstep(0.2, 1.0, dd)) * (0.86 + 0.14 * (0.5 + 0.5 * d[1]));
+    const flex = sk.H ? flexK * Math.pow(clamp(P[1] / sk.H, 0, 1), 1.5) : flexK;
+    B.v(P, n, u0 + du * (0.5 + d[0] * 0.46), v0 + dv * (0.5 + (d[1] * 0.7 + d[2] * 0.3) * 0.46), [col[0] * ao, col[1] * ao, col[2] * ao], flex, ph);
+  }
+  for (let k = 0; k < g.i.length; k += 3) B.i.push(first + g.i[k], first + g.i[k + 1], first + g.i[k + 2]);
+}
+function clumps(B, sp, sk, rnd, lod) {
+  const Lf = sp.leaves, name = sp.name;
+  const col = lin(ANIME_LEAF[name] || '#6e9c4a');
+  const pts = [];
+  for (const tw of sk.twigs) {
+    const from = tw.tipOnly ? 0.7 : (Lf.from ?? 0.25);
+    const n = Math.max(1, Math.round(tw.len * 2.5));
+    for (let k = 0; k < n; k++) pts.push(pointOn(tw, from + (1 - from) * (k + 0.5) / n).p);
+  }
+  for (let i = pts.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [pts[i], pts[j]] = [pts[j], pts[i]]; }
+  const crownR = Math.cbrt(sk.Rr[0] * sk.Rr[1] * sk.Rr[2]);
+  const rc = crownR * (lod ? 0.5 : 0.42) * (sp.clump || 1), sq = clamp(sk.Rr[1] / Math.max(sk.Rr[0], 0.1), 0.55, 1.2);
+  const cs = [];
+  for (const p0 of pts) {
+    const p = add(sk.C, scl(sub(p0, sk.C), 0.84)); // (a little inside the envelope: the lumps reach out to it)
+    if (cs.some((c) => Math.hypot(c[0] - p[0], (c[1] - p[1]) / sq, c[2] - p[2]) < rc * 1.05)) continue;
+    cs.push(p);
+    if (cs.length >= (lod ? 9 : 16)) break;
+  }
+  // a core, so no sky shows through the middle of the crown
+  blob(B, sk.C, crownR * 0.62, sq, col.map((v) => v * 0.82), sk, rnd, lod ? 1 : 2, TILE.copa, 0.25, 0.2);
+  cs.forEach((c, i) => {
+    const vk = 0.9 + rnd() * 0.2 + (c[1] > sk.C[1] ? 0.06 : -0.04);
+    blob(B, c, rc * (0.9 + rnd() * 0.4), sq * (0.85 + rnd() * 0.2), col.map((v) => v * vk), sk, rnd, lod ? 1 : 2, i % 3 ? TILE.copa : TILE.copa_b, 0.45, 0.26);
+  });
+  // fruit, flowers: little balls sitting on the clumps
+  if (!lod && ANIME_DOTS[name]) for (const [h, n, r] of ANIME_DOTS[name]) {
+    const dc = lin(h);
+    for (let k = 0; k < n; k++) {
+      const c = cs[Math.floor(rnd() * cs.length)] || sk.C;
+      const d = nrm([rnd() - 0.5, rnd() * 0.9 - 0.25, rnd() - 0.5]);
+      blob(B, add(c, [d[0] * rc * 0.95, d[1] * rc * 0.95 * sq, d[2] * rc * 0.95]), r * (0.85 + rnd() * 0.3), 1, dc, sk, rnd, 0, TILE.copa, 0.5, 0.05);
+    }
+  }
+}
 // broadleaves and conifers with a branching crown
 function buildBranching(sp, rnd, lod) {
   const sk = grow(sp, rnd), bark = new Buf(), leaves = new Buf();
@@ -719,7 +814,7 @@ function buildBranching(sp, rnd, lod) {
     const radial = b.depth === 0 ? (lod ? 6 : 9) : b.depth === 1 ? (lod ? 4 : 6) : 3;
     tube(bark, b, radial, tile, tint, sk, (i * 0.61803) % 1);
   });
-  leafCards(leaves, sp, sk, rnd, lod);
+  if (STYLE.anime) clumps(leaves, sp, sk, rnd, lod); else leafCards(leaves, sp, sk, rnd, lod);
   return { bark, leaves, H: sk.H, R: Math.max(sk.Rr[0], sk.Rr[2]) };
 }
 // cypress: a slim spindle of foliage round a hidden stem
@@ -727,6 +822,15 @@ function buildColumn(sp, rnd, lod) {
   const H = R(rnd, sp.H), Rm = R(rnd, sp.r), bark = new Buf(), leaves = new Buf();
   const sk = { H, C: [0, H * 0.5, 0], Rr: [Rm, H * 0.5, Rm] };
   tube(bark, { pts: [[0, 0, 0], [0.02, 0.8, 0], [0, H * 0.85, 0.02]], rad: [0.16, 0.12, 0.03], depth: 0, flare: 1.3 }, lod ? 5 : 7, BARK[sp.bark], [1, 1, 1], sk, 0.3);
+  if (STYLE.anime) { // a column of lumps, tapering to a point
+    const col = lin(ANIME_LEAF.cipres), n = lod ? 5 : 9;
+    for (let k = 0; k < n; k++) {
+      const t = (k + 0.5) / n, y = 0.9 + t * (H - 1.4), prof = Math.pow(Math.sin(Math.PI * clamp(t * 0.92 + 0.06, 0, 1)), 0.7) * (1 - 0.45 * t * t);
+      const r = Math.max(0.25, Rm * prof * 1.05), vk = 0.88 + 0.2 * t + rnd() * 0.08;
+      blob(leaves, [(rnd() - 0.5) * 0.12, y, (rnd() - 0.5) * 0.12], r, ((H - 1.4) / n) / r * 0.95, col.map((v) => v * vk), sk, rnd, lod ? 1 : 2, TILE.copa, 0.5, 0.2);
+    }
+    return { bark, leaves, H, R: Rm };
+  }
   const tiles = sp.tiles.map((t) => TILE[t]);
   const step = lod ? 0.75 : 0.34;
   for (let y = 0.5; y < H - 0.2; y += step) {
@@ -748,6 +852,11 @@ function buildColumn(sp, rnd, lod) {
 // clipped hedge: cards all over a box, turned outwards
 function buildBox(sp, rnd, lod) {
   const [L, W, Hh] = sp.size, bark = new Buf(), leaves = new Buf(), tile = TILE[sp.tiles[0]];
+  if (STYLE.anime) { // a clipped hedge as a row of rounded lumps
+    const col = lin(ANIME_LEAF.seto), sk = { H: Hh, C: [0, Hh * 0.55, 0], Rr: [L / 2, Hh / 2, W / 2] };
+    blob(leaves, [0, Hh * 0.5, 0], 1, 1, col.map((v) => v * (0.94 + rnd() * 0.1)), sk, rnd, lod ? 1 : 2, TILE.copa_b, 0.15, 0.05, { n: 5, h: [L * 0.53, Hh * 0.5, W * 0.5] });
+    return { bark, leaves, H: Hh, R: L / 2 };
+  }
   const step = lod ? 0.7 : 0.32, sz = R(rnd, sp.card) * (lod ? 1.8 : 1);
   const face = (o, P) => { const up = nrm(add(o, [(rnd() - 0.5) * 0.6, 0.5 + (rnd() - 0.5) * 0.4, (rnd() - 0.5) * 0.6])); const side = nrm(cross(up, nrm([rnd() - 0.5, rnd() - 0.5, rnd() - 0.5]))); card(leaves, P, up, side, sz, sz, tile, o, 0.75 + rnd() * 0.25, 0.25, rnd(), rnd() < 0.5, 0.35); };
   for (let x = -L / 2 + step / 2; x < L / 2; x += step) for (let y = step / 2; y < Hh; y += step) { face([0, 0, 1], [x, y, W / 2 - 0.12]); face([0, 0, -1], [x, y, -W / 2 + 0.12]); }
@@ -832,6 +941,11 @@ function buildVine(sp, rnd, lod) {
   const bark = new Buf(), leaves = new Buf(), sk = { H: 1.8, C: [0, 1.25, 0], Rr: [0.9, 0.55, 0.35] };
   tube(bark, { pts: [[0, 0, 0], [0.05, 0.4, 0.02], [-0.03, 0.8, 0]], rad: [0.05, 0.04, 0.035], depth: 0, flare: 1.2 }, 5, BARK.comun, [0.9, 0.8, 0.7], sk, 0.1);
   for (const s of [-1, 1]) tube(bark, { pts: [[-0.03, 0.8, 0], [s * 0.5, 0.86, 0], [s * 1.0, 0.84, 0]], rad: [0.03, 0.025, 0.015], depth: 1 }, 4, BARK.comun, [0.9, 0.8, 0.7], sk, 0.2);
+  if (STYLE.anime) { // the row's leaves as a few soft lumps over the wires
+    const col = lin(ANIME_LEAF.vid);
+    for (let k = 0; k < (lod ? 2 : 4); k++) blob(leaves, [(k / ((lod ? 2 : 4) - 1) - 0.5) * 1.5, 1.3, 0], 0.55, 0.7, col.map((v) => v * (0.92 + rnd() * 0.12)), sk, rnd, lod ? 0 : 1, TILE.copa, 0.5, 0.3);
+    return { bark, leaves, H: 1.8, R: 1.1 };
+  }
   const n = lod ? 7 : 26, tile = TILE.vid_a;
   for (let k = 0; k < n; k++) {
     const x = (rnd() - 0.5) * 2.1, y = 0.85 + rnd() * 0.85, z = (rnd() - 0.5) * 0.35;
@@ -893,12 +1007,12 @@ export function makeLeafMaterial(atlas, { a2c = true } = {}) {
       .replace('#include <map_fragment>', `#include <map_fragment>
   diffuseColor.a *= 1.0 + max(0.0, log2(max(fwidth(vMapUv.x), fwidth(vMapUv.y)) * 2048.0)) * 0.3;`)
       // the diffuse light wraps round the crown and some comes through the leaves from behind (the specular keeps the
-      // plain term: a lit back face would blow up the GGX lobe)
-      .replace('#include <lights_physical_pars_fragment>', THREE.ShaderChunk.lights_physical_pars_fragment.replace(
+      // plain term: a lit back face would blow up the GGX lobe). The anime look keeps its two clean tones instead.
+      .replace('#include <lights_physical_pars_fragment>', STYLE.anime ? '#include <lights_physical_pars_fragment>' : THREE.ShaderChunk.lights_physical_pars_fragment.replace(
         'reflectedLight.directDiffuse += irradiance * BRDF_Lambert( material.diffuseColor );',
         '{ float nlL = dot( geometryNormal, directLight.direction ); reflectedLight.directDiffuse += ( saturate( ( nlL + 0.4 ) / 1.4 ) + saturate( -nlL ) * 0.3 ) * directLight.color * BRDF_Lambert( material.diffuseColor ); }'));
   };
-  m.customProgramCacheKey = () => 'leaf' + SHADER_V + (a2c ? 'a' : '');
+  m.customProgramCacheKey = () => 'leaf' + SHADER_V + (a2c ? 'a' : '') + STYLE.name;
   return m;
 }
 export function makeBarkMaterial(tex) {
@@ -990,6 +1104,7 @@ export class TreeLibrary {
 export function makeImpostorMaterial(alb, nrmTex, { a2c = true } = {}) {
   const m = new THREE.MeshStandardMaterial({ map: alb, normalMap: nrmTex, roughness: 0.85, metalness: 0, alphaTest: 0.5, side: THREE.DoubleSide });
   m.alphaToCoverage = a2c;
+  m.defines = { TOON_KEEP_NORMALS: '' }; // (a billboard's volume is all in its baked normals)
   m.onBeforeCompile = (sh) => {
     sh.vertexShader = sh.vertexShader
       .replace('#include <common>', `#include <common>

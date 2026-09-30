@@ -90,12 +90,12 @@ export function head(o) {
   return grp;
 }
 async function post(name) { const url = G().renderer.domElement.toDataURL('image/jpeg', 0.88); await fetch('/__snap?name=' + name, { method: 'POST', body: url }); }
-function size(w, h) { const g = G(); g.renderer.setSize(w, h, false); if (g.composer) { g.composer.setSize(w, h); if (g.bloom) g.bloom.setSize(w, h); } }
+function size(w, h) { const g = G(); g.renderer.setSize(w, h, false); if (g.composer) { g.composer.setSize(w, h); if (g.bloom) g.bloom.setSize(w, h); } if (g.toon) g.toon.setSize(w, h); }
 async function shot(name, pos, look, fov, w, h) {
   const g = G(); size(w, h);
   const cam = g.camera.clone(); cam.fov = fov; cam.aspect = w / h; cam.near = 0.01; cam.position.set(...pos); cam.lookAt(...look); cam.updateProjectionMatrix();
   const keep = g.camera; g.camera = cam; if (g.composer) g.composer.passes[0].camera = cam;
-  try { if (g.composer) g.composer.render(); else g.renderer.render(g.scene, cam); } finally { g.camera = keep; if (g.composer) g.composer.passes[0].camera = keep; }
+  try { if (g.renderView) g.renderView(cam); else if (g.composer) g.composer.render(); else g.renderer.render(g.scene, cam); } finally { g.camera = keep; if (g.composer) g.composer.passes[0].camera = keep; }
   await post(name);
 }
 export async function shoot(list, tag = '', opts = {}) {

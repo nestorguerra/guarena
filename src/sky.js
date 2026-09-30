@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import { Sky } from 'three/addons/objects/Sky.js';
 import { clamp, lerp, smoothstep } from './util.js';
+import { STYLE } from './style.js';
 
 const LAT = 38.86 * Math.PI / 180;
 const DECL = -0.8 * Math.PI / 180; // ~24 September
@@ -28,12 +29,22 @@ const KEYS = [
   { a: 0.35, zen: 0x2f6bd0, hor: 0xa9cbee, warm: 0xd4e2f2, gnd: 0xb3ab98, sun: 0xfff2d8 },
   { a: 1.0, zen: 0x2a62cc, hor: 0x9cc4ec, warm: 0xc9dcf2, gnd: 0xb8b0a0, sun: 0xffffff },
 ];
+// the anime sky: a clean teal by day, a pale mint horizon, sunsets of apricot and rose, a deep blue night
+const KEYS_ANIME = [
+  { a: -0.3, zen: 0x0b1433, hor: 0x1b2a4e, warm: 0x24325a, gnd: 0x0c1020, sun: 0x000000 },
+  { a: -0.08, zen: 0x1d2c5e, hor: 0x5b4a78, warm: 0xb0677a, gnd: 0x1e1c2c, sun: 0x6a3a2a },
+  { a: 0.0, zen: 0x3f5f9e, hor: 0xf0a880, warm: 0xffb27a, gnd: 0x5a4a48, sun: 0xff9a5a },
+  { a: 0.12, zen: 0x4a8cc0, hor: 0xf3d2a8, warm: 0xffd3a0, gnd: 0x9a8c78, sun: 0xffd6a0 },
+  { a: 0.35, zen: 0x46a2c6, hor: 0xbfe6df, warm: 0xdff2ea, gnd: 0xb9b4a0, sun: 0xfff4de },
+  { a: 1.0, zen: 0x3f9cc4, hor: 0xb5e2dc, warm: 0xd6efe8, gnd: 0xbdb8a4, sun: 0xffffff },
+];
 const _ca = new THREE.Color(), _cb = new THREE.Color();
 const NIGHT_FILL = new THREE.Color(0.27, 0.33, 0.47), NIGHT_GND = new THREE.Color(0.11, 0.1, 0.09);
 function paletteAt(alt, key, out) {
+  const K = STYLE.anime ? KEYS_ANIME : KEYS;
   let i = 0;
-  while (i < KEYS.length - 2 && alt > KEYS[i + 1].a) i++;
-  const A = KEYS[i], B = KEYS[i + 1];
+  while (i < K.length - 2 && alt > K[i + 1].a) i++;
+  const A = K[i], B = K[i + 1];
   const t = clamp((alt - A.a) / (B.a - A.a), 0, 1);
   _ca.setHex(A[key]); _cb.setHex(B[key]);
   return out.copy(_ca).lerp(_cb, t);
@@ -93,6 +104,59 @@ function makeSkyMaterial(uniforms) {
   });
 }
 
+// the anime sky (the whole of it, day and night): a gentle gradient, a flat sun with a halo, and big flat clouds cut
+// with a clean edge — a paler lit side and a shaded belly, a second layer of darker teal clouds behind
+function makeAnimeSkyMaterial(uniforms) {
+  return new THREE.ShaderMaterial({
+    side: THREE.BackSide, depthWrite: false, fog: false,
+    uniforms,
+    vertexShader: `varying vec3 vDir; void main(){ vDir = position; vec4 p = modelViewMatrix * vec4(position,1.0); gl_Position = projectionMatrix * p; gl_Position.z = gl_Position.w; }`,
+    fragmentShader: `
+      uniform vec3 uSun, uZen, uHor, uWarm, uGnd, uSunCol; uniform float uTime, uNight, uCloud;
+      varying vec3 vDir;
+      float h2(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7))) * 43758.5453); }
+      float n2(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f); return mix(mix(h2(i),h2(i+vec2(1,0)),f.x), mix(h2(i+vec2(0,1)),h2(i+vec2(1,1)),f.x), f.y); }
+      float fbm(vec2 p){ float s=0.0, a=0.5; for(int i=0;i<5;i++){ s+=a*n2(p); p=p*2.03+vec2(1.7,9.2); a*=0.5; } return s; }
+      float cut(float v, float t) { float e = max(fwidth(v) * 0.9, 0.002); return smoothstep(t - e, t + e, v); }
+      void main(){
+        vec3 d = normalize(vDir);
+        float h = d.y;
+        vec2 hs = normalize(uSun.xz + 1e-5), hd = normalize(d.xz + 1e-5);
+        float toward = pow(max(dot(hs, hd), 0.0), 2.5);
+        vec3 hor = mix(uHor, uWarm, toward * 0.85);
+        vec3 col = mix(hor, uZen, smoothstep(0.0, 0.62, pow(max(h, 0.0), 0.8)));
+        col = mix(col, uGnd, smoothstep(0.0, -0.1, h));
+        float sd = dot(d, uSun);
+        // the sun: a flat disc and a soft halo round it (no glare)
+        float up = step(-0.04, uSun.y);
+        col = mix(col, mix(col, uSunCol * 1.25 + 0.3, 0.55), smoothstep(0.975, 0.9985, sd) * 0.45 * up);
+        col = mix(col, uSunCol * 1.6 + 0.45, smoothstep(0.99935, 0.9996, sd) * up);
+        // night: a scatter of glow near the horizon (the town), the rest is the stars' layer
+        col += vec3(0.16, 0.11, 0.08) * exp(-max(h, 0.0) * 12.0) * uNight * 0.35;
+        if (h > -0.03) {
+          vec2 uv = d.xz / (h + 0.16) * 0.85 + vec2(uTime * 0.0035, uTime * 0.0012);
+          vec2 w = vec2(fbm(uv * 0.6 + 3.1), fbm(uv * 0.6 + 7.7)) - 0.5;
+          float fade = smoothstep(-0.02, 0.12, h);
+          // far clouds: darker teal shapes low over the horizon
+          float cB = fbm(uv * 0.55 + w * 1.4 + 11.0);
+          float mB = cut(cB, 0.62 - uCloud * 0.12) * fade * (1.0 - smoothstep(0.1, 0.45, h));
+          col = mix(col, mix(col, uZen * 0.72 + hor * 0.12, 0.55), mB * 0.8);
+          // near clouds: cream-white, their lower part in shade
+          float c = fbm(uv + w * 1.1);
+          float t = 1.0 - uCloud * 0.62;
+          float m = cut(c, t) * fade;
+          float lit = cut(fbm(uv + w * 1.1 + vec2(0.0, 0.05) + vec2(uSun.x, uSun.z) * 0.06), t + 0.035);
+          vec3 cl = mix(vec3(1.0, 0.985, 0.95), uSunCol * 1.15 + vec3(0.18), 0.35 * (1.0 - smoothstep(0.0, 0.45, uSun.y)));
+          vec3 cs = mix(hor, uZen, 0.35) * 0.9 + cl * 0.18;
+          vec3 cc = mix(cs, cl, lit);
+          cc = mix(cc, uZen * 0.55 + vec3(0.03, 0.04, 0.07), uNight * 0.8);
+          col = mix(col, cc, m * (0.9 - 0.3 * uNight));
+        }
+        gl_FragColor = vec4(col, 1.0);
+      }`,
+  });
+}
+
 export class SkySystem {
   constructor(renderer, scene, quality) {
     this.renderer = renderer;
@@ -104,7 +168,7 @@ export class SkySystem {
       uWarm: { value: new THREE.Color() }, uGnd: { value: new THREE.Color() }, uSunCol: { value: new THREE.Color() },
       uTime: { value: 0 }, uNight: { value: 0 }, uCloud: { value: 0.42 },
     };
-    this.mat = makeSkyMaterial(this.uniforms);
+    this.mat = STYLE.anime ? makeAnimeSkyMaterial(this.uniforms) : makeSkyMaterial(this.uniforms);
     // physical daytime sky (Rayleigh + Mie scattering): real blues, a white haze at the horizon, orange sunsets
     this.phys = new Sky();
     this.phys.scale.setScalar(3800);
@@ -183,7 +247,7 @@ export class SkySystem {
     // IBL: the same sky rendered into a PMREM environment map
     this.pmrem = new THREE.PMREMGenerator(renderer);
     this.envScene = new THREE.Scene();
-    this.envScene.add(new THREE.Mesh(new THREE.SphereGeometry(100, 32, 16), makeSkyMaterial(this.uniforms)));
+    this.envScene.add(new THREE.Mesh(new THREE.SphereGeometry(100, 32, 16), STYLE.anime ? makeAnimeSkyMaterial(this.uniforms) : makeSkyMaterial(this.uniforms)));
     this.envGround = new THREE.Mesh(new THREE.CircleGeometry(90, 24), new THREE.MeshBasicMaterial({ color: 0x8a7e6c }));
     this.envGround.rotation.x = -Math.PI / 2; this.envGround.position.y = -2;
     this.envScene.add(this.envGround);
@@ -238,7 +302,7 @@ export class SkySystem {
     this.phys.position.copy(focus);
     this.phys.material.uniforms.sunPosition.value.copy(d);
     this.phys.material.uniforms.turbidity.value = 2.8 + this.cloud * 2.4; // hazier with more cloud
-    this.phys.visible = alt > -0.2;
+    this.phys.visible = !STYLE.anime && alt > -0.2;
     this.stars.position.copy(focus);
     this.stars.material.uniforms.uOpacity.value = this.night * (1 - (this.cloud || 0) * 0.5);
     // moon opposite-ish to the sun, high at night
@@ -250,12 +314,12 @@ export class SkySystem {
     const sunCol = paletteAt(Math.max(alt, 0.0), 'sun', new THREE.Color());
     if (alt > -0.02) {
       this.sun.color.copy(sunCol).lerp(new THREE.Color(1, 1, 1), 0.25);
-      this.sun.intensity = 4.4 * smoothstep(-0.02, 0.16, alt);
+      this.sun.intensity = (STYLE.anime ? 2.6 : 4.4) * smoothstep(-0.02, 0.16, alt);
       this.sun.position.copy(focus).addScaledVector(d, 250);
       this.lightDir = (this.lightDir || new THREE.Vector3()).copy(d);
     } else {
       this.sun.color.setRGB(0.6, 0.7, 0.95);
-      this.sun.intensity = 0.9 * this.night; // moonlight: soft blue light and long shadows
+      this.sun.intensity = (STYLE.anime ? 0.45 : 0.9) * this.night; // moonlight: soft blue light and long shadows
       this.sun.position.copy(focus).addScaledVector(md, 250);
       this.lightDir = (this.lightDir || new THREE.Vector3()).copy(md);
     }
@@ -268,11 +332,21 @@ export class SkySystem {
     this.hemi.color.copy(U.uZen.value).lerp(U.uHor.value, 0.55).lerp(new THREE.Color(0.86, 0.84, 0.8), 0.62 * day).lerp(NIGHT_FILL, this.night * 0.85);
     this.hemi.groundColor.copy(U.uGnd.value).multiplyScalar(0.85).lerp(NIGHT_GND, this.night * 0.8);
     this.hemi.intensity = lerp(0.45, 0.5, day) + this.night * 0.8;
+    if (STYLE.anime) { // the shade is the sky's: cool, clear, never dark (the two tones of an anime background)
+      this.hemi.color.copy(U.uZen.value).lerp(U.uHor.value, 0.45).lerp(new THREE.Color(0.9, 0.96, 1.0), 0.35 * day).lerp(NIGHT_FILL, this.night * 0.7);
+      this.hemi.groundColor.copy(U.uGnd.value).lerp(new THREE.Color(0.62, 0.66, 0.7), 0.4).lerp(NIGHT_GND, this.night * 0.7);
+      this.hemi.intensity = lerp(0.42, 1.9, day) + this.night * 0.12; // (night: a deep blue, the lamps do the rest)
+    }
     // fog matches the horizon
     this.fog.color.copy(U.uHor.value).lerp(U.uZen.value, 0.15);
     this.fog.near = lerp(60, 280, day);
     this.fog.far = lerp(800, 2600, day);
     this.renderer.toneMappingExposure = lerp(1.08, 0.68, day) + golden * day * 0.06;
+    if (STYLE.anime) {
+      this.fog.color.copy(U.uHor.value).lerp(U.uZen.value, 0.25);
+      this.fog.near = lerp(90, 380, day); this.fog.far = lerp(1100, 3400, day);
+      this.renderer.toneMappingExposure = lerp(0.55, 0.95, day);
+    }
     // environment map (IBL), refreshed occasionally
     this.envTimer -= dt;
     if (forceEnv || this.envTimer <= 0) {
@@ -287,7 +361,7 @@ export class SkySystem {
       this.envRT = rt;
       this.scene.environment = rt.texture;
     }
-    this.scene.environmentIntensity = lerp(0.4, 0.55, day);
+    this.scene.environmentIntensity = STYLE.anime ? lerp(0.3, 0.45, day) : lerp(0.4, 0.55, day);
     return this.night;
   }
 }

@@ -1,5 +1,6 @@
 // Shared materials & shader patches (texture arrays for facades and ground, wind for trees, night lighting).
 import * as THREE from 'three';
+import { STYLE } from './style.js';
 
 export const shared = {
   uNight: { value: 0 },      // 0 day .. 1 full night
@@ -57,6 +58,7 @@ export function arrayTexture(data, size, layers, { srgb = true, aniso = 8 } = {}
 // detail = { alb, nrm, mean[], size[], on, normals }
 export function makeBuildingMaterial(facadeTex, detail = null) {
   const m = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.92, metalness: 0.0, side: THREE.DoubleSide });
+  if (STYLE.anime) m.defines = { ANIME: '' };
   const dOn = detail && detail.on ? 1 : 0;
   const nOn = detail && detail.on && detail.normals ? 1 : 0;
   const dummy = new THREE.DataArrayTexture(new Uint8Array([128, 128, 255, 255]), 1, 1, 1);
@@ -263,6 +265,15 @@ mat3 cotangentFrame(vec3 N, vec3 p, vec2 uv) {
       // sky reflection, stronger at grazing angles
       float fres = pow(1.0 - abs(rd.z), 3.0);
       col = mix(col, mix(vec3(0.6, 0.7, 0.8), vec3(0.04, 0.05, 0.08), uNight), gGlass * (0.1 + 0.45 * fres));
+      #ifdef ANIME
+      { // the painter's glass: a pale sky tint and one or two white diagonal glints across the pane
+        vec2 cu = fract(vUvF);
+        float sk = fract((cu.x * 0.85 + cu.y) * 1.3 + vTex.z * 0.37 + bay * 0.21);
+        float glint = step(0.72, sk) * step(sk, 0.84) + step(0.9, sk) * step(sk, 0.93);
+        col = mix(col, vec3(0.62, 0.8, 0.84), gGlass * 0.25 * (1.0 - uNight));
+        col = mix(col, vec3(0.95, 0.98, 1.0), gGlass * glint * 0.75 * (1.0 - uNight));
+      }
+      #endif
     }
   }
   // dirt streaks washed down from sills and balconies (chorreones)
