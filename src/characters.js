@@ -18,7 +18,13 @@ const EYES = ['#4a2e1c', '#3a2416', '#5b3d22', '#6a5a30', '#4d6b3a', '#4a6a8a', 
 
 // ---------------------------------------------------------------- character descriptor presets
 export const PLAYER_PRESETS = [
-  { hq: true, id: 'alex', name: 'Álex', gender: 'm', age: 24, bio: 'Repartidor. Conoce cada callejón entre Santa María y San Gregorio.', skin: 1, hair: 1, hairStyle: 'tupe', top: '#f4f4f0', topStyle: 'tshirt', bottom: '#2f4f7a', bottomStyle: 'jeans', shoes: '#f2f2f2', accessory: 'mochila', build: 1.0, eyes: '#4a2e1c' },
+  // Álex, el protagonista (a la manera del mensajero del juego web Messenger): un chaval repartidor, melena negra con
+  // flequillo, sudadera naranja con capucha, mochila roja con su sobre blanco, bermudas cargo, calcetines blancos y
+  // zapatillas rojas de suela blanca. v: sube al cambiar el preset para renovar partidas guardadas.
+  { hq: true, id: 'alex', v: 2, name: 'Álex', gender: 'm', age: 18, mhG: 0.62, bio: 'Repartidor. Conoce cada callejón entre Santa María y San Gregorio.',
+    skinColor: '#f1d4bd', hairColor: '#15161a', hairStyle: 'melena', top: '#e2793e', topStyle: 'hoodie', bottom: '#77795a', bottomStyle: 'bermuda',
+    shoes: '#c53b34', shoeStyle: 'sneaker', sole: '#f2efe8', laces: '#f2efe8', accessory: 'mochila', bagColor: '#a6353a', bagMark: true,
+    height: 0.8, build: 0.88, slim: 1, headScale: 1.24, fringe: 0.004, hem: [-0.068, 0.03, 0.012], eyes: '#2b1d14', face: [-1, -0.5, 0.5, -1, -0.5] },
   { hq: true, id: 'manu', name: 'Manu', gender: 'm', age: 29, bio: 'Agricultor de las Vegas. Olivos, tomates y un tractor que no le deja tirado nunca.', skin: 2, hair: 0, hairStyle: 'rizos', beard: true, top: '#3c7a3f', topStyle: 'polo', bottom: '#c9b89a', bottomStyle: 'pants', shoes: '#5b3a26', accessory: 'gorra', accessoryColor: '#1f4a3a', build: 1.08, eyes: '#3a2416' },
   { hq: true, id: 'dani', name: 'Dani', gender: 'm', age: 19, bio: 'Estudiante del Eugenio Frutos. Más rápido que la Benemérita… o eso cree.', skin: 0, hair: 3, hairStyle: 'rapado', top: '#b8302a', topStyle: 'hoodie', bottom: '#1d1f24', bottomStyle: 'pants', shoes: '#1d1f24', build: 0.96, eyes: '#4a6a8a' },
   { hq: true, id: 'lucia', name: 'Lucía', gender: 'f', age: 22, bio: 'Vuelve de la UEx para las fiestas. Conduce como si llegara tarde a todo.', skin: 1, hair: 2, hairStyle: 'largo', top: '#e6b422', topStyle: 'tshirt', bottom: '#3d5f8f', bottomStyle: 'jeans', shoes: '#f2f2f2', build: 1.0, eyes: '#5b3d22' },
@@ -77,8 +83,9 @@ export function shapeSpec(desc) {
     topMat: top === 'jacket' ? (desc.topMat === 'vaquera' ? 'vaquera' : 'cuero') : null,
     bag, glasses: glasses ? 'g' : null, earrings: !!desc.earrings, watch: !!desc.watch,
     cane: elderly && g === 'm' && desc.cane !== false && !bag,
-    shoe, socks: shoe === 'sneaker' && (bottom === 'shorts' || bottom === 'skirt' || bottom === 'none'), tucked: !!desc.uniform, cop: !!desc.uniform,
-    belt: bottom !== 'skirt' && bottom !== 'shorts' && bottom !== 'none' && bottom !== 'chandal',
+    shoe, socks: shoe === 'sneaker' && (bottom === 'shorts' || bottom === 'bermuda' || bottom === 'skirt' || bottom === 'none'), tucked: !!desc.uniform, cop: !!desc.uniform,
+    belt: bottom !== 'skirt' && bottom !== 'shorts' && bottom !== 'bermuda' && bottom !== 'none' && bottom !== 'chandal',
+    hk: desc.headScale ? q(desc.headScale, 0.02) : 1,
     slim: desc.slim ? Math.min(1, q(desc.slim, 0.25)) : 0, skirtShort: bottom === 'skirt' && desc.skirtLen === 'short',
     bust: g === 'f' && desc.bust ? q(desc.bust, 0.1) : undefined,
     face: desc.face ? desc.face.map((v) => Math.round(clamp(v, -1, 1) * 2) / 2) : undefined, // jaw, chin, cheeks, nose, brow
@@ -87,7 +94,7 @@ export function shapeSpec(desc) {
     mh: mhSpec(desc, g, elderly), // the MakeHuman head (charbuild.js mhHead)
   };
   spec.key = [spec.g, spec.S, spec.W, spec.elderly ? 'o' : 'y', spec.belly, spec.M, top, bottom, hair, hat, spec.beard, spec.topMat || '', bag ? 'b' : '', spec.glasses ? 'g' : '', spec.earrings ? 'e' : '', spec.watch ? 'w' : '',
-    spec.cane ? 'c' : '', shoe, spec.socks ? 's' : '', spec.tucked ? 't' : '', spec.cop ? 'p' : '', spec.belt ? 'l' : '', spec.bust || '', spec.face ? spec.face.join(',') : ''].join('|') + (spec.slim ? '|sl' + spec.slim : '') + (spec.skirtShort ? '|ss' : '') + (spec.hq ? '|hq' : spec.hqHead ? '|hh' : '');
+    spec.cane ? 'c' : '', shoe, spec.socks ? 's' : '', spec.tucked ? 't' : '', spec.cop ? 'p' : '', spec.belt ? 'l' : '', spec.bust || '', spec.face ? spec.face.join(',') : ''].join('|') + (spec.slim ? '|sl' + spec.slim : '') + (spec.skirtShort ? '|ss' : '') + (spec.hq ? '|hq' : spec.hqHead ? '|hh' : '') + (spec.hk !== 1 ? '|hk' + spec.hk : '');
   const m = spec.mh;
   m.hair = mhHairFor(spec);
   spec.key += `|mh${m.g},${m.age},${m.eth.join(',')},${m.wt},${m.mu},${m.seed},${m.brow},${m.lash},${m.hair || ''}`;
@@ -122,7 +129,7 @@ function mhSpec(desc, g, elderly) {
   const mu = clamp(0.5 + (desc.muscle || 0) * 0.35, 0.3, 0.9);
   const brows = f ? ['eyebrow001', 'eyebrow002', 'eyebrow005', 'eyebrow011', 'eyebrow012'] : ageG === 'mayor' ? ['eyebrow009', 'eyebrow010', 'eyebrow004'] : ['eyebrow003', 'eyebrow004', 'eyebrow008', 'eyebrow010', 'eyebrow012'];
   return {
-    g: +(f ? 0.02 + (seed % 5) * 0.01 : 0.98 - (seed % 5) * 0.01).toFixed(2), age: Math.round(age / 3) * 3, eth: eth.map((v) => +v.toFixed(3)),
+    g: +(desc.mhG ?? (f ? 0.02 + (seed % 5) * 0.01 : 0.98 - (seed % 5) * 0.01)).toFixed(2), age: Math.round(age / 3) * 3, eth: eth.map((v) => +v.toFixed(3)),
     wt: +wt.toFixed(2), mu: +mu.toFixed(2), seed, amt: 0.55, face: desc.face ? desc.face.map((v) => Math.round(clamp(v, -1, 1) * 2) / 2) : null,
     brow: desc.brow || brows[seed % brows.length], lash: f ? (seed % 3 ? 'eyelashes02' : 'eyelashes03') : 'eyelashes01',
   };
@@ -207,7 +214,7 @@ function mhEyeFor(desc) {
 
 // garment ids the material's detail pass understands (seams, pockets, plackets...), hem heights and sleeve lengths
 const TOP_ID = { tshirt: 0, polo: 1, shirt: 2, hoodie: 3, tank: 4, blouse: 5, cardigan: 6, jacket: 7, sweater: 8, tracktop: 9, dress: 10, vest: 11 };
-const BOT_ID = { jeans: 0, pants: 1, shorts: 2, skirt: 3, cargo: 4, chandal: 5, dress: 6 };
+const BOT_ID = { jeans: 0, pants: 1, shorts: 2, skirt: 3, cargo: 4, chandal: 5, dress: 6, bermuda: 7 };
 const SHOE_ID = { sneaker: 0, shoe: 1, boot: 2 };
 const PATTERN_ID = { lisa: 0, rayas: 1, cuadros: 2, lunares: 3 };
 const HEM_Y = { tshirt: 0.925, polo: 0.925, shirt: 0.925, hoodie: 0.91, tank: 0.925, blouse: 0.915, cardigan: 0.87, jacket: 0.9, sweater: 0.905, tracktop: 0.91, vest: 0.9, dress: 0.6 };
@@ -229,7 +236,7 @@ function palette(desc) {
   P[1] = top; P[2] = shade(top, trimK);
   P[3] = bot; P[4] = shade(bot, 0.88);
   P[5] = C(desc.uniform ? '#141414' : '#3a2a20'); P[6] = C('#c9c0a8');
-  P[7] = shoe; P[8] = white ? C('#dedad2') : C('#26211c'); P[9] = white ? C('#f4f4f0') : shade(shoe, 0.7);
+  P[7] = shoe; P[8] = desc.sole ? C(desc.sole) : white ? C('#dedad2') : C('#26211c'); P[9] = desc.laces ? C(desc.laces) : white ? C('#f4f4f0') : shade(shoe, 0.7);
   P[10] = white ? (desc.top && desc.top.toLowerCase() !== '#f4f4f0' ? top.clone() : C('#b8302a')) : shade(shoe, 0.8);
   P[11] = hair; P[12] = C(desc.gender === 'f' ? '#1d1f24' : '#1d1f24'); P[27] = shade(hair, 0.92);
   P[13] = C('#e6dfd6'); P[14] = C(desc.eyes || '#4a2e1c'); P[15] = C('#08080a'); P[16] = C('#140f0c');
@@ -583,7 +590,7 @@ float cMHHair(inout vec3 col, vec3 skinC, vec3 F, vec3 P, float lipA, float fem,
 // garment detail in the rest pose (metres): seams and stitching, pockets, plackets and buttons, zips, patterns,
 // knitted rib, and the creases that appear at the knees, the backs of the knees, the ankles and the elbows
 const CHAR_FS_CLOTH = `
-uniform vec4 uBody; uniform vec4 uBend; uniform vec4 uGarm; uniform vec4 uCut; uniform vec3 uTop2; uniform vec3 uBot2; uniform vec3 uThread; uniform vec3 uShoe2;
+uniform vec4 uBody; uniform float uBagMark; uniform vec4 uFringe; uniform vec4 uHem; uniform vec4 uBend; uniform vec4 uGarm; uniform vec4 uCut; uniform vec3 uTop2; uniform vec3 uBot2; uniform vec3 uThread; uniform vec3 uShoe2;
 flat varying float vReg;
 float gLod; float gLod2; // fine lines fade once they are thinner than a few pixels; creases a little later
 float gLn(float d, float w) { return 1.0 - smoothstep(w * 0.35, w, abs(d)); }
@@ -725,6 +732,7 @@ void garmentBottom(inout vec3 col, inout float bump, inout float dk, vec3 P, boo
   }
   if (st == 1 && P.z > 0.0 && t > 0.1 * S) ln += gLn(r * (ang - 1.5708), 0.003) * 0.6; // pressed crease down the front
   if (st == 2 && t > 0.1 * S) ln += gLn(t - 0.228 * S, 0.0015) * gDs(r * ang); // shorts: hem stitching
+  if (st == 7 && t > 0.1 * S) ln += gLn(t - 0.395 * S, 0.0016) * gDs(r * ang) + gLn(t - 0.405 * S, 0.0022); // bermuda: the turned-up hem
   if (st == 3) ln += gLn(P.y - (uCut.w + 0.012 * S), 0.0015) * gDs(P.x + P.z); // skirt hem
   // creases: behind the knee (more when it bends), stacked at the ankle on long trousers, across the front of a bent knee
   float kb = s > 0.0 ? uBend.z : uBend.w;
@@ -938,7 +946,7 @@ function makeCharMaterial(uniforms) {
     #ifdef ANIME
     { // painted, not photographed: the person's own colour, rosy lips, a blush on the cheeks
       col = mix(diffuseColor.rgb, col, 0.07);
-      col = mix(col, col * vec3(1.05, 0.76, 0.74), lipA * 0.55);
+      col = mix(col, col * vec3(1.04, 0.84, 0.82), lipA * 0.4);
       float bl = exp(-pow((abs(F.x) - 0.04) / 0.018, 2.0) - pow((F.y - 0.05) / 0.014, 2.0)) * smoothstep(0.02, 0.05, F.z);
       col = mix(col, col * vec3(1.06, 0.84, 0.84), bl * 0.5);
     }
@@ -965,7 +973,7 @@ function makeCharMaterial(uniforms) {
     diffuseColor.a = clamp((a - 0.04) * 1.3, 0.0, 1.0);
     diffuseColor.rgb = (mc == 19 ? uBrow * 0.72 : vec3(0.022, 0.018, 0.016)) * (0.7 + 0.6 * dot(t.rgb, vec3(0.333)));
     #ifdef ANIME
-    diffuseColor.a = smoothstep(mc == 19 ? 0.22 : 0.16, mc == 19 ? 0.42 : 0.34, a); // (one stroke, not hairs)
+    diffuseColor.a = smoothstep(mc == 19 ? 0.22 : 0.2, mc == 19 ? 0.42 : 0.38, a); // (one stroke, not hairs)
     diffuseColor.rgb = mc == 19 ? uBrow * 0.55 : vec3(0.03, 0.025, 0.03);
     #endif
     gRough = mc == 19 ? 0.62 : 0.45;
@@ -974,6 +982,19 @@ function makeCharMaterial(uniforms) {
   else if (mc == 22) { // hair (MakeHuman's cards): painted strands in grey, tinted to the person's colour; alpha → coverage
     vec4 t = texture2D(uMHHairTex, vUV2);
     if (t.a < 0.05) discard;
+    // a fringe: whatever hangs over the face below the brows is cut away (a bob with bangs), in pointed locks
+    if (uFringe.x > 0.5) {
+      float u = vRest.x / 0.017 + 0.5, i = floor(u), r = fract(sin(i * 127.1 + 3.7) * 43758.55);
+      float jf = abs(fract(u) - 0.5) * 2.0; // (locks of different lengths, each to a point)
+      if (vRest.y < uFringe.y + (0.003 + 0.005 * r) * jf - 0.003 * r && vRest.z > uFringe.z - 0.02 && abs(vRest.x) < uFringe.w + 0.03) discard;
+    }
+    // and a length: cut round the head (a little longer at the back), its ends in points too
+    if (uHem.x > 0.5) {
+      float back = clamp((uFringe.z - 0.03 - vRest.z) / 0.12, 0.0, 1.0);
+      float u = atan(vRest.x, vRest.z - uFringe.z + 0.09) * 3.1, i = floor(u), r = fract(sin(i * 91.7 + 1.3) * 43758.55);
+      float jh = abs(fract(u) - 0.5) * 2.0;
+      if (vRest.y < uHem.y - uHem.z * back + uHem.w * (0.45 + 0.55 * r) * jh - 0.006 * r) discard;
+    }
     diffuseColor.a = clamp((t.a - 0.05) * 1.35, 0.0, 1.0);
     float l = t.r;
     #ifdef ANIME
@@ -994,6 +1015,14 @@ function makeCharMaterial(uniforms) {
   }
   { // garment detail: seams, pockets, buttons, patterns and creases (fading out before it can alias)
     int rg = int(vReg + 0.5); float dk = 0.0; vec3 col = diffuseColor.rgb; float bh = 0.0;
+    if (uBagMark > 0.5 && rg == 21 && P.z < -0.25 * uBody.x * uBody.y) { // the courier's mark on the backpack: a white envelope
+      vec2 u = vec2(P.x / uBody.y, P.y - 1.3 * uBody.x) / uBody.x;
+      float fr = abs(max(abs(u.x) - 0.066, abs(u.y) - 0.046));
+      vec2 a = vec2(abs(u.x), u.y), b0 = vec2(0.066, 0.046), b1 = vec2(0.0, -0.004), ba = b1 - b0;
+      float fl = length(a - b0 - ba * clamp(dot(a - b0, ba) / dot(ba, ba), 0.0, 1.0));
+      float dm = min(fr, fl) - 0.0055, aa = fwidth(dm) + 1e-5;
+      col = mix(col, vec3(0.93, 0.92, 0.88), 1.0 - smoothstep(-aa, aa, dm));
+    }
     gLod = 1.0 - smoothstep(0.003, 0.008, gPX); gLod2 = 1.0 - smoothstep(0.008, 0.02, gPX);
     if (rg == 1 || rg == 2) garmentTop(col, bh, dk, P, rg == 2);
     else if (rg == 3 || rg == 4) garmentBottom(col, bh, dk, P, rg == 4);
@@ -1217,7 +1246,7 @@ export class CharacterFactory {
     }
     root.updateMatrixWorld(true);
     const inverses = order.map((o) => o.matrixWorld.clone().invert());
-    return { key: r.key, lods, bones: r.bones, inverses, neckY: r.neckY ?? null };
+    return { key: r.key, lods, bones: r.bones, inverses, neckY: r.neckY ?? null, brow: r.brow || null };
   }
   // per-character geometry: shared attributes + its own colours
   geometry(shape, desc) {
@@ -1248,7 +1277,7 @@ export class CharacterFactory {
     const m = this.matPool.pop() || makeCharMaterial({ uHair: { value: new THREE.Color() }, uLip: { value: new THREE.Color() }, uStubble: { value: 0 }, uMakeup: { value: 0 }, uBuzz: { value: 0 }, uAge: { value: 0 },
       uPrint: { value: kittyTexture() }, uPrintOn: { value: 0 }, uPrintC: { value: new THREE.Vector3() }, uPrintS: { value: new THREE.Vector2(1, 1) }, uZombie: { value: 0 },
       uFaceA: { value: null }, uFaceB: { value: null }, uFem: { value: 0 }, uHL: { value: new THREE.Vector4(0, 0, 0, -10) }, uPart: { value: 0 }, uCurl: { value: 0 }, uCapHair: { value: 0 }, uBeard: { value: 0 }, uHairEnd: { value: -10 },
-      uBody: { value: new THREE.Vector4(1, 1, 0, 0) }, uBend: { value: new THREE.Vector4() }, uGarm: { value: new THREE.Vector4() }, uCut: { value: new THREE.Vector4(0.925, 0.13, 0, 0.47) },
+      uBody: { value: new THREE.Vector4(1, 1, 0, 0) }, uBagMark: { value: 0 }, uFringe: { value: new THREE.Vector4() }, uHem: { value: new THREE.Vector4() }, uBend: { value: new THREE.Vector4() }, uGarm: { value: new THREE.Vector4() }, uCut: { value: new THREE.Vector4(0.925, 0.13, 0, 0.47) },
       uTop2: { value: new THREE.Color() }, uBot2: { value: new THREE.Color() }, uThread: { value: new THREE.Color() }, uShoe2: { value: new THREE.Color() },
       uMHSkin: { value: null }, uMHEye: { value: null }, uMHBrow: { value: null }, uMHLash: { value: null }, uMHLips: { value: null }, uMHMean: { value: new THREE.Vector3(0.6, 0.35, 0.25) },
       uMHHair: { value: null }, uMHStyle: { value: new THREE.Vector4(0.94, 0, 0, 0) }, uMHHairTex: { value: null }, uNeckY: { value: -10 }, uBrow: { value: new THREE.Color() } });
@@ -1300,6 +1329,7 @@ export class CharacterFactory {
     const sp = shapeSpec(desc), rS = (f ? 0.935 : 1) * sp.S;
     const ts = desc.topStyle || 'tshirt', bs = desc.bottomStyle || 'jeans';
     u.uBody.value.set(rS, sp.W, f ? 1 : 0, sp.slim || 0);
+    u.uBagMark.value = desc.bagMark ? 1 : 0;
     u.uGarm.value.set(TOP_ID[ts] ?? 0, BOT_ID[bs] ?? 0, PATTERN_ID[desc.topPattern] ?? 0, SHOE_ID[sp.shoe] ?? 0);
     u.uCut.value.set((sp.tucked ? 0.9 : HEM_Y[ts] ?? 0.925) * rS, (SLEEVE[ts] ?? 0.13) * rS, sp.tucked ? 1 : 0, (bs === 'skirt' ? (sp.elderly ? 0.38 : sp.skirtShort ? 0.53 : 0.47) : 0) * rS);
     u.uTop2.value.set(desc.top2 || '#f4f4f0');
@@ -1335,7 +1365,9 @@ export class CharacterFactory {
 // Walk personality: hip sway and pelvis roll, bounce, arm swing, stride, posture (slouch > 0), swagger in the shoulders,
 // stance width, and the little things they do while standing around. Pedestrians get a seeded blend.
 const GAITS = {
-  alex: { hips: 0.9, sway: 1.0, bounce: 1.0, arms: 1.0, stride: 1.0, slouch: 0.01, swagger: 0.3, wide: 0, fidgets: ['look', 'phone', 'stretch', 'shift', 'look'] },
+  // Álex walks like the courier of Messenger: upright, short quick steps with a young bounce, the arms hanging close and
+  // barely swinging, no swagger; idle, he looks about him
+  alex: { hips: 0.55, sway: 0.75, bounce: 1.3, arms: 0.55, stride: 0.9, slouch: -0.01, swagger: 0.04, wide: -0.012, fidgets: ['look', 'shift', 'look', 'stretch', 'look'] },
   manu: { hips: 0.7, sway: 1.3, bounce: 0.8, arms: 0.85, stride: 0.95, slouch: 0.04, swagger: 0.5, wide: 0.045, fidgets: ['cross', 'stretch', 'look', 'scratch', 'cross'] },
   dani: { hips: 0.8, sway: 0.8, bounce: 1.4, arms: 1.2, stride: 1.06, slouch: 0.06, swagger: 0.25, wide: 0.01, fidgets: ['tap', 'phone', 'look', 'shift', 'scratch'] },
   lucia: { hips: 1.35, sway: 1.0, bounce: 1.05, arms: 0.9, stride: 1.02, slouch: -0.02, swagger: 0.12, wide: -0.01, fidgets: ['hips', 'look', 'phone', 'hair', 'watch'] },
@@ -1641,6 +1673,11 @@ export class Character {
     this.geos = this.factory.geometry(shape, this.desc);
     this.mat = this.statue ? this.factory.bronze : this.factory.material(this.desc);
     if (!this.statue) this.mat.userData.u.uNeckY.value = shape.neckY ?? -10; // (where the MakeHuman head meets the sculpted neck)
+    if (!this.statue) {
+      const b = shape.brow, u = this.mat.userData.u, d = this.desc || {};
+      if (b && d.fringe) u.uFringe.value.set(1, b[0] + d.fringe, b[1], b[2]); else u.uFringe.value.set(0, 0, 0, 0);
+      if (b && d.hem) u.uHem.value.set(1, b[0] + d.hem[0], d.hem[1], d.hem[2]); else u.uHem.value.set(0, 0, 0, 0); // (below the brows, lower at the back, points)
+    }
     const ident = new THREE.Matrix4();
     this.meshes = this.geos.map((g, i) => {
       const m = new THREE.SkinnedMesh(g, this.mat);

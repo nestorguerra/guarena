@@ -393,7 +393,7 @@ export function charBuilderMain(mhLib) {
   function makeRig(spec, mh = null) {
     const f = spec.g === 'f';
     const H = spec.S || 1;
-    const S = (f ? 0.935 : 1) * H, W = spec.W || 1, Sh = (f ? 0.955 : 1) * H;
+    const S = (f ? 0.935 : 1) * H, W = spec.W || 1, Sh = (f ? 0.955 : 1) * H * (spec.hk || 1); // (hk: a bigger head, a younger look)
     const hs = S * (f ? 0.9 : 1) * Math.pow(W, 0.3), fs = S * (f ? 0.92 : 1); // hand and shoe modelling scales
     const bones = [], P = {}, R = {};
     // a MakeHuman head: the eyes (and the lids that close over them) turn about its own eyeballs; the brows sit over them
@@ -779,7 +779,7 @@ export function charBuilderMain(mhLib) {
       : L.add(P_ell([0, 1.1 * S, 0.006 * S], [(0.152 + loose) * S * G, 0.24 * S, (0.104 + loose) * S * G]), { k: 0.05, bone: 'spine', reg });
     // the torso under a garment; over the hips (pelvis and the tops of the thighs) a little looser than whatever is worn
     // underneath, so the hem never shows the trousers or the skirt through
-    const under = { jeans: [0.007, 1.03], pants: [0.009, 1.03], shorts: [0.012, 1.14], skirt: [0.014, 1.04], cargo: [0.012, 1.08], chandal: [0.013, 1.09] }[spec.bottom || 'jeans'] || [0.009, 1.03];
+    const under = { jeans: [0.007, 1.03], pants: [0.009, 1.03], shorts: [0.012, 1.14], bermuda: [0.015, 1.24], skirt: [0.014, 1.04], cargo: [0.012, 1.08], chandal: [0.013, 1.09] }[spec.bottom || 'jeans'] || [0.009, 1.03];
     const body = (inf, girth = 1.02, reg = T) => {
       const skip = ['neck', 'adam'];
       if (spec.tucked) { torsoParts(L, R, { inf, girth, skip, reg }); return; }
@@ -902,8 +902,9 @@ export function charBuilderMain(mhLib) {
       sleeves(L, R, { ...long, inf: 0.014, girth: 1.16, cut: 0.505, reg: T });
       L.add(P_box([0, 1.03 * S, (f ? 0.112 : 0.122) * S * G], [0.1 * S, 0.055 * S, 0.012 * S], 0.008 * S), { k: 0.012, bone: 'spine', reg: T });
       cap();
-      L.add(P_ell([0, 1.465 * S, -0.085 * S], [0.125 * S, 0.06 * S, 0.075 * S]), { k: 0.03, bone: 'chest', reg: T });
-      L.add(P_ell([0, 1.525 * S, -0.1 * S], [0.105 * S, 0.065 * S, 0.05 * S]), { k: 0.03, bone: 'chest', reg: T });
+      // the hood, bunched up behind the neck in two folds (their own outline)
+      L.add(P_ell([0, 1.465 * S, -0.09 * S], [0.128 * S, 0.062 * S, 0.078 * S]), { k: 0.018, bone: 'chest', reg: T });
+      L.add(P_ell([0, 1.53 * S, -0.108 * S], [0.108 * S, 0.066 * S, 0.054 * S]), { k: 0.01, bone: 'chest', reg: TT });
       L.sub(P_cone([0, 1.42 * S, -0.012 * S], [0, 1.75 * S, 0.0], 0.07 * S, 0.066 * S), { k: 0.012, reg: TT });
       hem(0.91, TT);
       return L;
@@ -960,14 +961,14 @@ export function charBuilderMain(mhLib) {
       };
       return L;
     }
-    const shorts = style === 'shorts', cargo = style === 'cargo', track = style === 'chandal';
-    const inf = shorts ? 0.012 : style === 'jeans' ? 0.007 : cargo ? 0.011 : track ? 0.013 : 0.009;
-    const girth = shorts ? 1.14 : cargo ? 1.07 : track ? 1.09 : 1.03;
+    const berm = style === 'bermuda', shorts = style === 'shorts' || berm, cargo = style === 'cargo' || berm, track = style === 'chandal';
+    const inf = berm ? 0.015 : shorts ? 0.012 : style === 'jeans' ? 0.007 : cargo ? 0.011 : track ? 0.013 : 0.009;
+    const girth = berm ? 1.24 : shorts ? 1.14 : cargo ? 1.07 : track ? 1.09 : 1.03;
     torsoParts(L, R, { only: ['pelvis', 'glute', 'abdomen'], inf: 0.005, reg: B });
     L.group();
     for (const s of [1, -1]) {
       L.group();
-      const lp = legParts(L, R, s, { inf, girth, reg: B, skip: ['ankle'], cut: shorts ? 0.24 : null, only: shorts ? ['thigh'] : null });
+      const lp = legParts(L, R, s, { inf, girth, reg: B, skip: ['ankle'], cut: berm ? 0.39 : shorts ? 0.24 : null, only: berm ? ['thigh', 'knee'] : shorts ? ['thigh'] : null });
       const sd = s > 0 ? 'L' : 'R';
       if (!shorts) {
         // the lower leg: straight for jeans and trousers, gathered into an elastic cuff for a tracksuit
@@ -978,7 +979,7 @@ export function charBuilderMain(mhLib) {
       if (cargo) {
         // big bellows pockets on the outside of the thighs, with flaps
         const m = alignY(lp.d), out = [s * Math.cos(0.05), Math.sin(0.05) * s * -1, 0];
-        const c0 = add(add(lp.hp, scl(lp.d, 0.24 * S)), scl(out, 0.074 * S * G));
+        const c0 = add(add(lp.hp, scl(lp.d, (berm ? 0.25 : 0.24) * S)), scl(out, (berm ? 0.082 : 0.074) * S * G));
         L.add(P_box(c0, [0.016 * S, 0.06 * S, 0.052 * S], 0.008 * S, m), { k: 0.008, bone: 'thigh' + sd, reg: B });
         L.add(P_box(add(c0, scl(lp.d, -0.062 * S)), [0.02 * S, 0.012 * S, 0.056 * S], 0.005 * S, m), { k: 0.004, bone: 'thigh' + sd, reg: REG.bottomTrim });
       }
@@ -1234,14 +1235,34 @@ export function charBuilderMain(mhLib) {
     }
     return L;
   }
-  function bagLayer(R, h) {
+  // a point moved out of a layer (along its field's gradient) until it sits gap outside it: straps and strings lie on
+  // whatever the clothes are, however loose (a roomy hoodie used to swallow them)
+  function onSurface(layer, p, gap) {
+    if (!layer) return p;
+    const tmp = layer._tmpS || (layer._tmpS = new Int32Array(layer.ops.length + 1));
+    const f = (x, y, z) => layer.evalAt(x, y, z, tmp), e = 0.0015;
+    let q = p.slice();
+    for (let i = 0; i < 10; i++) {
+      const d = f(q[0], q[1], q[2]);
+      if (d >= gap - 0.0004) break;
+      const g = nrm([f(q[0] + e, q[1], q[2]) - f(q[0] - e, q[1], q[2]), f(q[0], q[1] + e, q[2]) - f(q[0], q[1] - e, q[2]), f(q[0], q[1], q[2] + e) - f(q[0], q[1], q[2] - e)]);
+      q = add(q, scl(g, Math.min(0.03, gap - d)));
+    }
+    return q;
+  }
+  function bagLayer(R, h, top) {
     const L = new Layer('bag', h, { order: 8, tau: 0.05 });
     const S = R.S, G = R.W;
     const Pp = (x, y, z) => [x * S * G, y * S, z * S * G];
-    L.add(P_box(Pp(0, 1.26, -0.2), [0.14 * S, 0.18 * S, 0.068 * S], 0.035 * S), { bone: 'chest', reg: REG.bag });
-    L.add(P_box(Pp(0, 1.17, -0.265), [0.11 * S, 0.075 * S, 0.028 * S], 0.02 * S), { k: 0.012, bone: 'chest', reg: REG.bagTrim });
+    // the pack against the back of the top: its front face just into the cloth
+    let zb = -0.132 * S * G;
+    if (top) { const tmp = new Int32Array(top.ops.length + 1); while (zb > -0.3 * S && top.evalAt(0, 1.26 * S, zb, tmp) < 0) zb -= 0.002 * S; }
+    const back = Math.min(0, zb + 0.132 * S * G + 0.006 * S);
+    L.add(P_box(add(Pp(0, 1.255, -0.2), [0, 0, back]), [0.152 * S, 0.19 * S, 0.07 * S], 0.036 * S), { bone: 'chest', reg: REG.bag });
+    L.add(P_box(add(Pp(0, 1.16, -0.268), [0, 0, back]), [0.118 * S, 0.078 * S, 0.028 * S], 0.02 * S), { k: 0.012, bone: 'chest', reg: REG.bagTrim });
     for (const s of [-1, 1]) {
-      const pts = [Pp(s * 0.08, 1.41, -0.15), Pp(s * 0.098, 1.515, -0.03), Pp(s * 0.115, 1.45, 0.112), Pp(s * 0.128, 1.33, 0.118), Pp(s * 0.15, 1.24, 0.085), Pp(s * 0.15, 1.15, -0.1)];
+      const pts = [Pp(s * 0.08, 1.41, -0.15), Pp(s * 0.098, 1.515, -0.03), Pp(s * 0.115, 1.45, 0.112), Pp(s * 0.128, 1.33, 0.118), Pp(s * 0.15, 1.24, 0.085), Pp(s * 0.15, 1.15, -0.1)]
+        .map((p, i) => (i === 0 ? add(p, [0, 0, back]) : onSurface(top, p, 0.011 * S)));
       for (let i = 0; i < pts.length - 1; i++) {
         const mid = lerp3(pts[i], pts[i + 1], 0.5), yv = nrm(sub(pts[i + 1], pts[i]));
         let out = sub(mid, [0, mid[1], -0.02 * S]);
@@ -1571,7 +1592,7 @@ export function charBuilderMain(mhLib) {
   const MH_FACE = [['chin/chin-bones', 'head/head-square'], ['chin/chin-prominent', 'chin/chin-height'], ['cheek/cheek-bones', 'cheek/cheek-volume'], ['nose/nose-scale-vert', 'nose/nose-scale-horiz'], ['eyebrows/eyebrows-angle', 'forehead/forehead-nubian']];
   const MH_MAT = { skin: 17, eye: 18, brow: 19, lash: 20, teeth: 21, hair: 22 };
   function mhHead(spec) {
-    const D = MHD, m = spec.mh, H = spec.S || 1;
+    const D = MHD, m = spec.mh, H = (spec.S || 1) * (spec.hk || 1);
     const w = MHL.macroWeights(m.g, m.age, { african: m.eth[0], asian: m.eth[1], caucasian: m.eth[2] }, m.wt, m.mu);
     const sl = MHL.faceSliders(D), byName = {};
     for (const x of sl) if (!byName[x.name]) byName[x.name] = x;
@@ -2122,7 +2143,7 @@ export function charBuilderMain(mhLib) {
     const bot = bottomLayer(R, 0.0135 * q, spec.bottom || 'jeans', spec); if (bot) L.bottom = bot;
     const hair = mh && (mh.hair || spec.hair === 'calvo') ? beardOnly(R, 0.008 * q, spec) : hairLayer(R, 0.008 * q, spec.hair, spec); if (hair) L.hair = hair; // (MakeHuman's haircut: cards, in mhParts; bald: painted)
     const hat = hatLayer(R, 0.009 * q, spec.hat); if (hat) L.hat = hat;
-    if (spec.bag) L.bag = bagLayer(R, 0.013 * q);
+    if (spec.bag) L.bag = bagLayer(R, 0.013 * q, L.top);
     if (spec.only) for (const k in L) if (!spec.only.includes(k)) delete L[k];
     // the top of the shoulders (trapezius, the outer end of the collarbone) rides on the collarbone
     const trapPost = (x, y, z, acc) => {
@@ -2205,7 +2226,11 @@ export function charBuilderMain(mhLib) {
       if (spec.glasses) glassesMesh(Aa, R);
       if (spec.earrings) earringsMesh(Aa, R);
       if (spec.watch) watchMesh(Aa, R);
-      if (spec.top === 'hoodie') for (const s of [-1, 1]) tubeMesh(Aa, [[s * 0.028 * S, 1.445 * S, 0.108 * S], [s * 0.031 * S, 1.37 * S, 0.126 * S * R.W], [s * 0.034 * S, 1.3 * S, 0.13 * S * R.W]], 0.0028 * S, REG.lace, 'chest', lo ? 3 : 5);
+      if (spec.top === 'hoodie') for (const s of [-1, 1]) { // the drawstrings: out of the neckline, hanging on the chest
+        const pts = [[s * 0.03, 1.452, 0.1], [s * 0.031, 1.41, 0.12], [s * 0.033, 1.36, 0.13], [s * 0.035, 1.31, 0.13], [s * 0.036, 1.27, 0.128]]
+          .map(([x, y, z]) => onSurface(L.top, [x * S, y * S, z * S * R.W], 0.0034 * S));
+        tubeMesh(Aa, pts, 0.0028 * S, REG.lace, 'chest', lo ? 3 : 5);
+      }
       if (spec.cane) {
         const o = R.P.handR, m = R.R.handR, hs = R.S;
         const T = (x, y, z) => add(o, mulM(m, [x * hs, y * hs, z * hs]));
@@ -2241,7 +2266,8 @@ export function charBuilderMain(mhLib) {
     times.raw = raw;
     times.hi = hi.index.length / 3;
     times.lo = lo.index.length / 3;
-    return { key: spec.key, bones: R.bones.map((b) => ({ name: b.name, parent: b.parent, off: b.off, rot: b.rot })), lods: [hi, lo], ms: Date.now() - T0, times, mh: !!mh, mhWanted: !!spec.mh, neckY: mh ? ringY : null };
+    return { key: spec.key, bones: R.bones.map((b) => ({ name: b.name, parent: b.parent, off: b.off, rot: b.rot })), lods: [hi, lo], ms: Date.now() - T0, times, mh: !!mh, mhWanted: !!spec.mh, neckY: mh ? ringY : null,
+      brow: mh ? [R.P.head[1] + mh.browL[1], R.P.head[2] + mh.eyeL[2], Math.abs(mh.eyeL[0])] : null }; // (the brow line, the eyes' depth and spacing: a fringe cut)
   }
   function transferables(res) {
     const t = [];
@@ -2258,5 +2284,5 @@ export function charBuilderMain(mhLib) {
   // bone rest offsets and bind (A-pose) rotations for a spec, without building any geometry
   function rig(spec) { return makeRig(spec).bones.map((b) => ({ name: b.name, parent: b.parent, off: b.off, rot: b.rot })); }
   const landmarks = (g) => baseLandmarks({ f: g === 'f' });
-  return { build, rig, transferables, landmarks, setMH, REG, MAT, BONES, VERSION: 22, _dbg: { makeRig, hairLayer, headLayer, headLandmarks, mhHead } };
+  return { build, rig, transferables, landmarks, setMH, REG, MAT, BONES, VERSION: 24, _dbg: { makeRig, hairLayer, headLayer, headLandmarks, mhHead } };
 }

@@ -34,9 +34,9 @@ const KEYS_ANIME = [
   { a: -0.3, zen: 0x0b1433, hor: 0x1b2a4e, warm: 0x24325a, gnd: 0x0c1020, sun: 0x000000 },
   { a: -0.08, zen: 0x1d2c5e, hor: 0x5b4a78, warm: 0xb0677a, gnd: 0x1e1c2c, sun: 0x6a3a2a },
   { a: 0.0, zen: 0x3f5f9e, hor: 0xf0a880, warm: 0xffb27a, gnd: 0x5a4a48, sun: 0xff9a5a },
-  { a: 0.12, zen: 0x4a8cc0, hor: 0xf3d2a8, warm: 0xffd3a0, gnd: 0x9a8c78, sun: 0xffd6a0 },
-  { a: 0.35, zen: 0x3f9dc4, hor: 0xa9dcd6, warm: 0xd3ede5, gnd: 0xb9b4a0, sun: 0xfff4de },
-  { a: 1.0, zen: 0x3897c0, hor: 0x9fd6d1, warm: 0xc9e9e1, gnd: 0xbdb8a4, sun: 0xffffff },
+  { a: 0.12, zen: 0x5aa6b4, hor: 0xf1d4ac, warm: 0xffd3a0, gnd: 0x9a8c78, sun: 0xffd6a0 },
+  { a: 0.35, zen: 0x6cbdbb, hor: 0xb0e0d6, warm: 0xd3ede5, gnd: 0xb9b4a0, sun: 0xfff4de },
+  { a: 1.0, zen: 0x68bab9, hor: 0xa9ddd4, warm: 0xc9e9e1, gnd: 0xbdb8a4, sun: 0xffffff },
 ];
 const _ca = new THREE.Color(), _cb = new THREE.Color();
 const NIGHT_FILL = new THREE.Color(0.27, 0.33, 0.47), NIGHT_GND = new THREE.Color(0.11, 0.1, 0.09);
@@ -137,13 +137,19 @@ function makeAnimeSkyMaterial(uniforms) {
           vec2 uv = d.xz / (h + 0.16) * 0.85 + vec2(uTime * 0.0035, uTime * 0.0012);
           vec2 w = vec2(fbm(uv * 0.6 + 3.1), fbm(uv * 0.6 + 7.7)) - 0.5;
           float fade = smoothstep(-0.02, 0.12, h);
-          // far clouds: darker teal shapes low over the horizon
-          float cB = fbm(uv * 0.55 + w * 1.4 + 11.0);
-          float mB = cut(cB, 0.62 - uCloud * 0.12) * fade * (1.0 - smoothstep(0.1, 0.45, h));
-          col = mix(col, mix(col, uZen * 0.72 + hor * 0.12, 0.55), mB * 0.8);
+          // brush-stroke clouds: long diagonal streaks of a deeper teal across the whole sky (the reference's sky),
+          // warmer at sunset, and a few paler strokes between them
+          vec2 su = mat2(0.8, -0.6, 0.6, 0.8) * uv * vec2(0.5, 1.8);
+          vec2 sw = vec2(fbm(su * 0.5 + 1.3), fbm(su * 0.5 + 9.1)) - 0.5;
+          float csk = fbm(su * 0.8 + sw * 1.2 + 21.0);
+          float ms = cut(csk, 0.6 - uCloud * 0.1) * fade;
+          vec3 deep = mix(uZen * vec3(0.72, 0.82, 0.86), uWarm * 0.72, 0.55 * (1.0 - smoothstep(0.05, 0.4, uSun.y)));
+          col = mix(col, deep, ms * (0.82 - 0.35 * uNight));
+          float cp = fbm(su * 1.25 + sw + 37.0);
+          col = mix(col, mix(col, vec3(1.0), 0.28), cut(cp, 0.7) * fade * (1.0 - ms) * (1.0 - uNight));
           // near clouds: cream-white, their lower part in shade
           float c = fbm(uv + w * 1.1);
-          float t = 1.0 - uCloud * 0.62;
+          float t = 1.0 - uCloud * 0.45;
           float m = cut(c, t) * fade;
           float lit = cut(fbm(uv + w * 1.1 + vec2(0.0, 0.05) + vec2(uSun.x, uSun.z) * 0.06), t + 0.035);
           vec3 cl = mix(vec3(1.0, 0.985, 0.95), uSunCol * 1.15 + vec3(0.18), 0.35 * (1.0 - smoothstep(0.0, 0.45, uSun.y)));

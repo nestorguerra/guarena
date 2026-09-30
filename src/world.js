@@ -48,11 +48,11 @@ export class World {
     const S = q.texSize;
     const fac = buildFacadeArray(S);
     // the anime look repaints them: flat colour, a few tones, ink on every real edge
-    if (STYLE.anime) toonifyLayers(fac.data, fac.size, fac.layers, { rColor: 3, rEdge: 1, levels: 6, posterize: 0.75, ink: 0.6, edge0: 14, edge1: 30 });
+    if (STYLE.anime) toonifyLayers(fac.data, fac.size, fac.layers, { rColor: 3, rEdge: 1, levels: 6, posterize: 0.75, ink: 0.78, edge0: 15, edge1: 30, grunge: 1 });
     this.facadeTex = arrayTexture(fac.data, fac.size, fac.layers, { aniso: q.aniso });
     await step('Empedrando calles…', 0.18);
     const gnd = buildGroundArray(Math.min(512, S));
-    if (STYLE.anime) toonifyLayers(gnd.data, gnd.size, gnd.layers, { rColor: 4, rEdge: 1, levels: 5, posterize: 0.7, ink: 0.45, edge0: 16, edge1: 36, saturation: 0.82 });
+    if (STYLE.anime) toonifyLayers(gnd.data, gnd.size, gnd.layers, { rColor: 4, rEdge: 1, levels: 5, posterize: 0.7, ink: 0.62, edge0: 16, edge1: 36, saturation: 0.82, grunge: 0.35 });
     this.groundTex = arrayTexture(gnd.data, gnd.size, gnd.layers, { aniso: q.aniso });
 
     // ---------------- landmarks (claim their footprints first)

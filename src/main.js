@@ -1,7 +1,7 @@
 // Boot, menus (title flyover, character select with live 3D preview in the Plaza de España), pause & settings.
 import * as THREE from 'three';
 import { Game, QUALITY } from './game.js';
-import { PLAYER_PRESETS, SKIN, HAIR, CLOTH } from './characters.js';
+import { PLAYER_PRESETS, SKIN, HAIR, CLOTH, mhTexReady } from './characters.js';
 import { PERKS } from './perks.js';
 import { colorFor } from './net.js';
 import { Editor } from './editor.js';
@@ -11,6 +11,7 @@ if (typeof GameAudio !== 'function') ({ GameAudio } = await import('./audio_stub
 import { safeStorage, clamp } from './util.js';
 import { STYLE, setStyle } from './style.js';
 import { installToonChunks } from './toon.js';
+import { INTRO, introPlan, droneAt, coverFov, IntroFlight } from './intro.js';
 
 const $ = (id) => document.getElementById(id);
 const ui = {
@@ -77,6 +78,8 @@ async function boot(hot = {}) {
   setStyle(style || 'anime');
   if (STYLE.anime) installToonChunks();
   document.body.dataset.look = STYLE.name;
+  // the anime look comes in without a menu: the drone's picture of the town drifts closer while it is built
+  const intro = STYLE.anime && !hot.resume ? introPicture() : null;
   game = new Game({ canvas: ui.canvas, ui, raw, quality: q, audio });
   refreshSavedCharacter();
   ui.onPause = () => openPause();
@@ -88,19 +91,98 @@ async function boot(hot = {}) {
   if (window.claude?.hot?.snapshot) window.claude.hot.snapshot(() => game.snapshot());
   window.game = game;
   $('loading').hidden = true;
-  showMenu();
+  if (intro) await beginIntro(intro);
+  else showMenu();
   let last = performance.now();
   const loop = (now) => {
     const dt = Math.min(0.1, (now - last) / 1000);
     last = now;
     try {
       if (mode === 'play') game.frame(dt);
+      else if (mode === 'intro') introFrame(dt);
       else menuFrame(dt);
     } catch (e) { console.error(e); }
     requestAnimationFrame(loop);
   };
   requestAnimationFrame(loop);
   if (hot.preset && hot.resume) { previewDesc = hot.preset; startGame(); }
+}
+
+// ------------------------------------------------------------ the way in (anime look): the drone's picture, then the flight
+// the painted view of the town covers the screen and drifts slowly closer (a CSS transition: smooth even while the
+// page is busy building the town)
+function introPicture() {
+  const box = $('intro'), img = $('introImg');
+  if (!box || !img) return null;
+  if (!box.hidden) return { box, img }; // (the page's own script has already put it up and set it drifting)
+  box.hidden = false;
+  const fit = () => {
+    const vw = innerWidth, vh = innerHeight, k = Math.max(vw / 1920, vh / 1080);
+    Object.assign(img.style, { width: 1920 * k + 'px', height: 1080 * k + 'px', left: (vw - 1920 * k) / 2 + 'px', top: (vh - 1080 * k) / 2 + 'px' });
+  };
+  fit(); addEventListener('resize', fit);
+  const go = () => { img.classList.add('on'); requestAnimationFrame(() => requestAnimationFrame(() => { img.style.transition = `transform ${INTRO.zoomTime}s cubic-bezier(0.25, 0.55, 0.35, 1), opacity 0.7s`; img.style.transform = `scale(${INTRO.zoomMax})`; })); };
+  if (img.complete && img.naturalWidth) go(); else img.addEventListener('load', go, { once: true });
+  return { box, img, fit };
+}
+function pictureScale(img) {
+  const m = getComputedStyle(img).transform;
+  const a = m && m !== 'none' ? parseFloat(m.slice(m.indexOf('(') + 1)) : 1;
+  return Number.isFinite(a) && a > 0 ? a : 1;
+}
+let flight = null, introBits = null;
+async function beginIntro(pic) {
+  const g = game, cam = g.camera;
+  const plan = introPlan(g);
+  g.sky.hour = INTRO.hour;
+  // Álex already in his street, the game started behind the picture (its HUD hidden until the flight has landed)
+  g.pendingMode = 'normal';
+  g.start(PLAYER_PRESETS[0], { at: { x: plan.P.x, z: plan.P.z, heading: plan.heading } });
+  if (g.weapons && g.weapons.cur !== 'punos') { g.weapons.select('punos'); if (g.weapons.syncModel && g.player.char) g.weapons.syncModel(g.player.char); } // (empty-handed on his street; the rest stays in his pockets)
+  $('hud').hidden = true;
+  // his own figure built, its skin and eyes painted, before the drone comes down to him (the picture drifts on meanwhile)
+  for (let t = 0; t < 15000 && !(g.player.char && g.player.char.ready); t += 50) await new Promise((r) => setTimeout(r, 50));
+  await Promise.race([mhTexReady(), new Promise((r) => setTimeout(r, 5000))]);
+  // where the game's own camera will be: the end of the flight
+  g.cam.update(0, g.input);
+  const endPos = cam.position.clone(), endLook = g.cam.target.clone(), endFov = g.cam.fov;
+  // the live camera exactly where the picture has got to, the picture frozen there
+  const s = pictureScale(pic.img);
+  pic.img.style.transition = 'none'; pic.img.style.transform = `scale(${s})`;
+  cam.fov = coverFov(innerWidth / Math.max(1, innerHeight));
+  droneAt(plan, s, cam.position); cam.lookAt(plan.T); cam.updateProjectionMatrix();
+  // a few frames behind the picture: the town around the drone streamed in, the shaders warm
+  for (let i = 0; i < 4; i++) { g.sky.update(0.016, cam.position); g.world.update(0.016, g.sky.night, cam.position); g.chars.updateLods(cam.position, true); g.render(); await new Promise((r) => setTimeout(r, 0)); }
+  flight = new IntroFlight(plan, cam.position, cam.fov, endPos, endLook, endFov);
+  introBits = { pic, t: 0 };
+  pic.box.classList.add('out'); // (the picture fades into the live view)
+  mode = 'intro';
+  // the first touch or key wakes the sound (browsers keep it asleep until then)
+  const wake = () => { audio.unlock(); removeEventListener('pointerdown', wake); removeEventListener('keydown', wake); };
+  addEventListener('pointerdown', wake); addEventListener('keydown', wake);
+}
+// (for the test tools, whose hidden page gets no animation frames: step the way in by hand)
+window.guarenaIntro = { step: (dt) => mode === 'intro' && introFrame(dt), get mode() { return mode; } };
+function introFrame(dt) {
+  const g = game;
+  flight.update(dt, g.camera);
+  introBits.t += dt;
+  if (introBits.t > 1.2 && !introBits.pic.box.hidden) introBits.pic.box.hidden = true;
+  g.sky.update(dt, g.camera.position);
+  g.world.update(dt, g.sky.night, g.camera.position);
+  g.fleet.streamParked(g.camera.position.x, g.camera.position.z);
+  g.fleet.update(dt, g.sky.night);
+  const ch = g.player && g.player.char;
+  if (ch) ch.update(dt, 0, {});
+  g.chars.updateLods(g.camera.position, true);
+  g.render();
+  if (flight.done) { // landed: you are playing
+    flight = null;
+    $('hud').hidden = false;
+    ui.touch.classList.add('playing');
+    mode = 'play';
+    game.input.wantLock = true;
+  }
 }
 
 // ------------------------------------------------------------ title menu with flyover
@@ -701,7 +783,7 @@ function wire() {
   document.querySelectorAll('#modeSeg button').forEach((b) => b.addEventListener('click', () => { audio.unlock(); audio.sfx('ui_select'); setModeSel(b.dataset.mode); }));
   setModeSel(game.save.modePref || 'normal');
   ui.onMenu = () => { $('hEnd').hidden = true; game.state = 'paused'; game.persist(); showMenu(); };
-  click('bPlay', () => { if (game.save.custom) { previewDesc = { ...game.save.custom }; startGame(); } else openSelect(); });
+  click('bPlay', () => { if (STYLE.anime) { previewDesc = { ...PLAYER_PRESETS[0] }; startGame(); } else if (game.save.custom) { previewDesc = { ...game.save.custom }; startGame(); } else openSelect(); });
   click('bMulti', openMulti);
   click('mpBack', () => { game.net.leave(); showMenu(); });
   click('mpReady', () => { const net = game.net; const playing = [...net.players.values()].some((p) => p.playing); net.setReady(playing ? true : !net.ready); });

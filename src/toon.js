@@ -113,8 +113,44 @@ export function toonifyLayers(data, S, layers, o = {}) {
         data[j + 2] = Math.max(0, Math.min(255, b * d * 1.02 + e * ink * 6));
       }
     }
+    if (o.grunge) grunge(data, off, S, A, l, o.grunge);
   }
   return data;
+}
+// the wear a background painter draws in: stains with a drawn edge (damp, moss, soot) and now and then a crack,
+// only on the wall itself (never across a pane)
+function grunge(data, off, S, A, layer, amount) {
+  let sd = (layer * 2654435761 + 12345) >>> 0;
+  const rnd = () => { sd ^= sd << 13; sd >>>= 0; sd ^= sd >>> 17; sd ^= sd << 5; sd >>>= 0; return sd / 4294967296; };
+  const G = 8, grid = Array.from({ length: G * G }, rnd), grid2 = Array.from({ length: 16 * 16 }, rnd);
+  const vnoise = (u, v, g, n) => { // periodic value noise over the tile
+    const x = u * n, y = v * n, xi = Math.floor(x), yi = Math.floor(y), fx = x - xi, fy = y - yi;
+    const sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy), at = (i, j) => g[((j % n + n) % n) * n + ((i % n + n) % n)];
+    return (at(xi, yi) * (1 - sx) + at(xi + 1, yi) * sx) * (1 - sy) + (at(xi, yi + 1) * (1 - sx) + at(xi + 1, yi + 1) * sx) * sy;
+  };
+  if (rnd() > 0.45 + amount * 0.25) return; // (most walls are clean)
+  const th = 0.86 - amount * 0.05, tint = rnd() < 0.5 ? [0.95, 0.965, 0.93] : [0.95, 0.94, 0.915]; // (moss-green or soot-brown)
+  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+    const i = y * S + x;
+    if (A[i] < 128) continue;
+    const n = vnoise(x / S, y / S, grid, G) * 0.72 + vnoise(x / S, y / S, grid2, 16) * 0.28;
+    if (n < th - 0.012) continue;
+    const j = off + i * 4, edge = n < th - 0.004;
+    const k = edge ? [0.8, 0.81, 0.84] : tint;
+    data[j] *= k[0]; data[j + 1] *= k[1]; data[j + 2] *= k[2];
+  }
+  const cracks = rnd() < 0.55 * amount ? 1 + Math.floor(rnd() * 2) : 0;
+  for (let c = 0; c < cracks; c++) {
+    let x = rnd() * S, y = rnd() * S, a = rnd() * Math.PI * 2;
+    const len = (0.06 + rnd() * 0.12) * S;
+    for (let t = 0; t < len; t += 1) {
+      a += (rnd() - 0.5) * 0.7; x += Math.cos(a); y += Math.sin(a);
+      const xi = ((Math.round(x) % S) + S) % S, yi = ((Math.round(y) % S) + S) % S, i = yi * S + xi;
+      if (A[i] < 128) break;
+      const j = off + i * 4; data[j] *= 0.42; data[j + 1] *= 0.44; data[j + 2] *= 0.5;
+      if (rnd() < 0.04) a += (rnd() < 0.5 ? -1 : 1) * 0.9; // (a kink)
+    }
+  }
 }
 // the same for a canvas (signs, posters, painted cards): smoothed a little and flattened, no lines
 export function toonifyCanvas(cv, o = {}) {
@@ -159,9 +195,15 @@ void main() {
   float lap = abs(il + ir - 2.0 * i0) + abs(idn + iup - 2.0 * i0) + 0.6 * (abs(ia + ib - 2.0 * i0) + abs(ic + id2 - 2.0 * i0));
   float rel = lap / max(i0, 1e-6);
   float sil = smoothstep(0.03 / thick, 0.1 / thick, rel);          // one thing in front of another
-  float crease = smoothstep(0.0065 / thick, 0.014 / thick, rel) * 0.85; // a corner, a step, a fold (not a facet)
-  float e = max(sil, crease);
+  float crease = smoothstep(0.0065 / thick, 0.014 / thick, rel) * 0.95; // a corner, a step, a fold (not a facet)
+  // the outer contour of a thing against what is behind it gets a bolder stroke, on its own side (a manga outline)
+  vec2 o2 = o * 3.0;
+  float ja = iz(uv + vec2(o2.x, 0.0)), jb = iz(uv - vec2(o2.x, 0.0)), jc = iz(uv + vec2(0.0, o2.y)), jd = iz(uv - vec2(0.0, o2.y));
+  float jump = max(max(i0 - ja, i0 - jb), max(i0 - jc, i0 - jd)) / max(i0, 1e-6);
+  float bold = smoothstep(0.14, 0.4, jump) * step(d0, 0.99999);
+  float e = max(max(sil, crease), bold);
   e *= 1.0 - smoothstep(uFadeN, uFadeF, zn);                        // far away the lines fade out
+  e *= 1.0 - 0.85 * smoothstep(0.8, 0.86, vn(vUv * uRes / 6.5 + 17.0)); // (and a pen skips now and then)
   if (d0 >= 0.99999 && zn > uFar * 0.98) e = 0.0;                   // (the sky itself)
   if (uDebug > 0.5) { gl_FragColor = vec4(uDebug < 1.5 ? vec3(rel * 200.0) : uDebug < 2.5 ? vec3(rel * 25.0, rel * 100.0, rel * 400.0) : vec3(fract(d0 * 4096.0)), 1.0); return; }
   vec3 c = texture2D(tColor, vUv).rgb;
@@ -183,8 +225,8 @@ void main() {
   c = c + uLift * (1.0 - smoothstep(0.0, 0.6, lm)) * (1.0 - uNight * 0.7);
   c = mix(c, c * vec3(0.8, 0.88, 1.1), uNight * 0.5);              // (night leans blue)
   // the ink: a dark, slightly blue version of what it outlines
-  vec3 ink = c * vec3(0.3, 0.33, 0.4) + vec3(0.012, 0.016, 0.028);
-  ink = mix(ink, c * 0.55, uNight * 0.4);
+  vec3 ink = mix(c * vec3(0.16, 0.18, 0.22), vec3(0.018, 0.02, 0.03), 0.84);   // black, a breath of the colour
+  ink = mix(ink, c * 0.5, uNight * 0.3);
   c = mix(c, ink, clamp(e * uInkK, 0.0, 1.0));
   gl_FragColor = vec4(srgb(clamp(c, 0.0, 1.0)), 1.0);
 }`;
@@ -200,7 +242,7 @@ export class ToonPipeline {
     this.u = {
       tColor: { value: this.rt.texture }, tDepth: { value: dt }, uRes: { value: new THREE.Vector2(1, 1) },
       uNear: { value: 0.25 }, uFar: { value: 4000 }, uLine: { value: 1 }, uExposure: { value: 1 },
-      uFadeN: { value: 260 }, uFadeF: { value: 900 }, uNight: { value: 0 }, uTime: { value: 0 }, uInkK: { value: 0.92 },
+      uFadeN: { value: 420 }, uFadeF: { value: 1400 }, uNight: { value: 0 }, uTime: { value: 0 }, uInkK: { value: 1.0 },
       uLift: { value: new THREE.Color(0.035, 0.05, 0.06) }, uSat: { value: 0.96 }, uDebug: { value: 0 },
     };
     this.mat = new THREE.ShaderMaterial({ uniforms: this.u, vertexShader: POST_VS, fragmentShader: POST_FS, depthTest: false, depthWrite: false, toneMapped: false });

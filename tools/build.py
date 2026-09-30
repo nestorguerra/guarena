@@ -116,11 +116,16 @@ def main():
     a = html.index('<!--ARTIFACT-START-->') + len('<!--ARTIFACT-START-->')
     b = html.index('<!--ARTIFACT-SCRIPTS-->')
     page = html[a:b].strip() + '\n'
+    # the drone's picture of the town shows before anything else has loaded: inline in the page itself
+    intro = os.path.join(ROOT, 'assets', 'intro.jpg')
+    if 'src="assets/intro.jpg"' in page and os.path.exists(intro):
+        with open(intro, 'rb') as f:
+            page = page.replace('src="assets/intro.jpg"', 'src="data:image/jpeg;base64,' + base64.b64encode(f.read()).decode('ascii') + '"', 1)
     split = '--split' in sys.argv
     dist = os.path.join(ROOT, 'dist')
     src_assets = os.path.join(ROOT, 'assets')
     asset_files = sorted(os.path.relpath(os.path.join(d, f), src_assets).replace(os.sep, '/')
-                         for d, _, fs in os.walk(src_assets) for f in fs if f != 'meta.json' and not f.startswith('.'))
+                         for d, _, fs in os.walk(src_assets) for f in fs if f != 'meta.json' and f != 'intro.jpg' and not f.startswith('.'))
     for sub in ('data', 'assets'):
         if os.path.isdir(os.path.join(dist, sub)): shutil.rmtree(os.path.join(dist, sub))
     os.makedirs(dist, exist_ok=True)

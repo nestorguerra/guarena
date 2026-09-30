@@ -291,6 +291,22 @@ mat3 cotangentFrame(vec3 N, vec3 p, vec2 uv) {
   if (!isRoof && vWallH > 0.0) col *= mix(1.0, 0.8, smoothstep(vWallH - 0.9, vWallH, vWY));
   // base darkening (ambient occlusion near the ground)
   col *= mix(0.62, 1.0, smoothstep(0.0, 1.6, vWY));
+  #ifdef ANIME
+  if (!isRoof) { // the painter's imperfections: whitewash laid on by hand, a grubby foot, here and there an ink crack
+    vec2 wn = normalize(vWNrm.xz + vec2(1e-5));
+    vec2 wp = vec2(dot(vWPos.xz, vec2(-wn.y, wn.x)), vWPos.y);
+    float pn = gNoise(wp * vec2(0.45, 0.6) + vTex.z * 7.0), pn2 = gNoise(wp * 1.7 + 3.1);
+    col *= mix(1.0, 0.94 + 0.08 * pn + 0.03 * pn2, wallMask);
+    col *= 1.0 - 0.1 * (1.0 - smoothstep(0.0, 0.3 + 0.55 * pn2, vWY)) * wallMask;
+    float fw = fwidth(wp.x) + fwidth(wp.y);
+    if (fw < 0.03) {
+      float zone = smoothstep(0.74, 0.8, gNoise(wp * 0.21 + vTex.z * 3.0 + 11.0));
+      float r = abs(gNoise(wp * vec2(1.6, 0.8) + 5.0) - 0.5) + 0.02 * gNoise(wp * 9.0);
+      float ln = 1.0 - smoothstep(0.004, 0.009 + fw * 0.6, r);
+      col *= 1.0 - 0.6 * ln * zone * wallMask * (1.0 - smoothstep(0.015, 0.03, fw));
+    }
+  }
+  #endif
   diffuseColor.rgb *= col;
   float isShop = lt > 6.5 ? 1.0 : 0.0;
   float litChance = isShop > 0.5 ? 0.7 : uNightLit;

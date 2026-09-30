@@ -49,6 +49,7 @@ export async function shoot(list, tag = '', opts = {}) {
       if (v === 'h') await shot(`fc_${k}${tag}_h`, [hp.x + Math.sin(0.6) * 0.62, ey + 0.05, lz + Math.cos(0.6) * 0.62], [hp.x, ey + 0.01, lz - 0.03], 30, 700, 700); // the whole head, hair and all
       if (v === 'k') await shot(`fc_${k}${tag}_k`, [hp.x - Math.sin(2.4) * 0.62, ey + 0.05, lz + Math.cos(2.4) * 0.62], [hp.x, ey + 0.0, lz - 0.05], 30, 700, 700); // from behind
       if (v === 'b') await shot(`fc_${k}${tag}_b`, [SPOT.x + 0.5, 1.05, SPOT.z + 2.6], [SPOT.x, 0.92, SPOT.z], 42, 480, 720);
+      if (v === 'r') await shot(`fc_${k}${tag}_r`, [SPOT.x - 0.7, 1.75, SPOT.z - 3.1], [SPOT.x, 0.85, SPOT.z], 40, 480, 720); // from behind, like the game's camera
     }
     g.scene.remove(ch.object); ch.dispose();
     out.push(desc.name);

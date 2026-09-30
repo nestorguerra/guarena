@@ -96,7 +96,8 @@ export class Game {
     progress('Leyendo el callejero de Guareña…', 0.03);
     // characters are sculpted in background workers while the town is being built
     this.chars = new CharacterFactory(this.qKey === 'baja' ? { q: 1.3, lodNear: 7 } : this.qKey === 'media' ? { lodNear: 10 } : {});
-    const firstDesc = this.save.custom || PLAYER_PRESETS[0];
+    // (the anime look has one protagonist, Álex the courier; the photographic one keeps the saved character)
+    const firstDesc = STYLE.anime ? PLAYER_PRESETS[0] : this.save.custom || PLAYER_PRESETS[0];
     this.chars.prebuild([firstDesc], 10);
     this.chars.prebuild(PLAYER_PRESETS, 8);
     this.chars.prebuild(pedShapes(), 6);

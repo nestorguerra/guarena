@@ -1,5 +1,6 @@
 // Player controller (on foot & driving, entering/exiting & carjacking, melee) and the third-person camera rig.
 import * as THREE from 'three';
+import { STYLE } from './style.js';
 import { clamp, lerp, damp, dampAngle, wrapAngle, TAU } from './util.js';
 import { PERK, setPerk } from './perks.js';
 
@@ -582,9 +583,11 @@ export class CameraRig {
       const sk = aim ? 0.65 : 1; // finer mouse while aiming
       this.yaw -= ldx * s * sk;
       this.pitch = clamp(this.pitch - ldy * s * sk, -1.1, 0.55);
+      // (the anime look frames its courier as the reference does: lower and closer, over the shoulder of a child)
+      const ks = (p.char && p.char.scale) || 1, an = STYLE.anime;
       if (p.knock) { tx = p.pos.x; ty = 0.9; tz = p.pos.z; }
-      else { tx = p.pos.x; ty = p.pos.y + (p.mode === 'sit' ? 1.15 : p.crouch ? 1.05 : 1.55); tz = p.pos.z; }
-      this.footDist = damp(this.footDist ?? this.dist, aim ? 2.2 : this.dist, 9, dt);
+      else { tx = p.pos.x; ty = p.pos.y + (p.mode === 'sit' ? 1.15 : p.crouch ? 1.05 : an ? 1.42 : 1.55) * (an ? ks : 1); tz = p.pos.z; }
+      this.footDist = damp(this.footDist ?? this.dist, aim ? 2.2 : an ? this.dist * 0.8 : this.dist, 9, dt);
       dist = this.footDist;
       if (aim) fovT = 50;
       // shoulder offset to the right (more while aiming)

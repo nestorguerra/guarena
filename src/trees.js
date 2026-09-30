@@ -270,7 +270,11 @@ const LEAF_RECIPES = {
   hierba: (c, a, r) => blades(c, a, r, 90, [hex('#5f8a3a'), hex('#6f9a42'), hex('#4f7d33'), hex('#86a04a')], 0.35, 0.9, 2.2),
   hierba_seca: (c, a, r) => blades(c, a, r, 80, [hex('#c8b27a'), hex('#b89e62'), hex('#d8c48c'), hex('#a08a58')], 0.3, 0.85, 2),
   // the skin of the anime crowns' clumps: almost flat, a few scalloped marks of leaves a shade darker or lighter
-  copa: (c, a, r) => { c.fillStyle = a ? '#fff' : '#e8e8e8'; c.fillRect(0, 0, LT, LT); if (!a) for (let i = 0; i < 70; i++) { const x = r() * LT, y = r() * LT, R0 = 4 + r() * 7; c.strokeStyle = r() < 0.6 ? 'rgba(160,160,160,0.32)' : 'rgba(255,255,255,0.5)'; c.lineWidth = 1.8; c.beginPath(); c.arc(x, y, R0, Math.PI * 1.15, Math.PI * 1.85); c.stroke(); } },
+  copa: (c, a, r) => { // leaf clusters drawn in: little dark scallops and flecks, a few pale ones
+    c.fillStyle = a ? '#fff' : '#e8e8e8'; c.fillRect(0, 0, LT, LT); if (a) return;
+    for (let i = 0; i < 46; i++) { const x = r() * LT, y = r() * LT; c.fillStyle = 'rgba(96,104,98,0.5)'; for (let k = 0; k < 3; k++) { c.beginPath(); c.ellipse(x + (r() - 0.5) * 12, y + (r() - 0.5) * 7, 3 + r() * 3.5, 1.6 + r() * 1.6, r() * 3, 0, Math.PI * 2); c.fill(); } }
+    for (let i = 0; i < 40; i++) { const x = r() * LT, y = r() * LT, R0 = 4 + r() * 6; c.strokeStyle = r() < 0.55 ? 'rgba(110,116,110,0.55)' : 'rgba(255,255,255,0.55)'; c.lineWidth = 1.8; c.beginPath(); c.arc(x, y, R0, Math.PI * 1.15, Math.PI * 1.85); c.stroke(); }
+  },
   copa_b: (c, a, r) => { c.fillStyle = a ? '#fff' : '#ececec'; c.fillRect(0, 0, LT, LT); if (!a) for (let i = 0; i < 40; i++) { const x = r() * LT, y = r() * LT; c.fillStyle = 'rgba(160,160,160,0.45)'; c.beginPath(); c.ellipse(x, y, 7 + r() * 8, 3 + r() * 3, r() * 3, 0, Math.PI * 2); c.fill(); } },
   // wild mustard (jaramago): branching stems, lobed leaves at the foot, sprays of little yellow flowers and pods
   jaramago: (c, a, r) => {
@@ -755,7 +759,8 @@ function blob(B, c, r, sq, col, sk, rnd, detail, tile, flexK, lump = 0.34, box =
   const cc = sk.C ? [sk.C[0], sk.C[1] - sk.Rr[1] * 0.25, sk.C[2]] : [c[0], c[1] - r, c[2]];
   for (let k = 0; k < g.n; k++) {
     const d = [g.p[k * 3], g.p[k * 3 + 1], g.p[k * 3 + 2]];
-    const w = Math.sin(d[0] * 2.7 + s1) * Math.sin(d[1] * 3.1 + s2) * Math.sin(d[2] * 2.9 + s3) + 0.35 * Math.sin(d[0] * 5.3 + s2) * Math.sin(d[2] * 4.7 + s1);
+    const w = Math.sin(d[0] * 2.7 + s1) * Math.sin(d[1] * 3.1 + s2) * Math.sin(d[2] * 2.9 + s3) + 0.35 * Math.sin(d[0] * 5.3 + s2) * Math.sin(d[2] * 4.7 + s1)
+      + (detail > 2 ? 0.28 * Math.sin(d[0] * 9.7 + s3) * Math.sin(d[1] * 8.9 + s1) * Math.sin(d[2] * 9.3 + s2) : 0); // (a leafy, scalloped edge up close)
     const kk = 1 + w * lump;
     let P = [c[0] + d[0] * r * kk, c[1] + d[1] * r * kk * sq, c[2] + d[2] * r * kk];
     if (box) { // a clipped shape: a rounded box (superellipsoid of exponent box.n, half sizes box.h)
@@ -787,13 +792,13 @@ function clumps(B, sp, sk, rnd, lod) {
     const p = add(sk.C, scl(sub(p0, sk.C), 0.84)); // (a little inside the envelope: the lumps reach out to it)
     if (cs.some((c) => Math.hypot(c[0] - p[0], (c[1] - p[1]) / sq, c[2] - p[2]) < rc * 1.05)) continue;
     cs.push(p);
-    if (cs.length >= (lod ? 9 : 16)) break;
+    if (cs.length >= (lod ? 9 : 13)) break;
   }
   // a core, so no sky shows through the middle of the crown
   blob(B, sk.C, crownR * 0.62, sq, col.map((v) => v * 0.82), sk, rnd, lod ? 1 : 2, TILE.copa, 0.25, 0.2);
   cs.forEach((c, i) => {
     const vk = 0.9 + rnd() * 0.2 + (c[1] > sk.C[1] ? 0.06 : -0.04);
-    blob(B, c, rc * (0.9 + rnd() * 0.4), sq * (0.85 + rnd() * 0.2), col.map((v) => v * vk), sk, rnd, lod ? 1 : 2, i % 3 ? TILE.copa : TILE.copa_b, 0.45, 0.26);
+    blob(B, c, rc * (0.9 + rnd() * 0.4), sq * (0.85 + rnd() * 0.2), col.map((v) => v * vk), sk, rnd, lod ? 1 : 3, i % 3 ? TILE.copa : TILE.copa_b, 0.45, 0.26);
   });
   // fruit, flowers: little balls sitting on the clumps
   if (!lod && ANIME_DOTS[name]) for (const [h, n, r] of ANIME_DOTS[name]) {
