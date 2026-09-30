@@ -1,7 +1,7 @@
 // Builds the whole static world of Guareña: ground, roads, buildings, landmarks, vegetation and street furniture.
 import * as THREE from 'three';
 import { buildFacadeArray, buildGroundArray, markingsCanvas, radialCanvas, signAtlas } from './textures.js';
-import { arrayTexture, makeBuildingMaterial, makeGroundMaterial, makeFoliageMaterial, makeNightGlowMaterial, makeTrimMaterial, shared } from './materials.js';
+import { arrayTexture, makeBuildingMaterial, makeGroundMaterial, makeNightGlowMaterial, makeTrimMaterial, shared } from './materials.js';
 import { FacadeDetails, CT } from './facades.js';
 import { PLAYER_PRESETS } from './characters.js';
 import { buildStreetLife } from './streetlife.js';
@@ -9,7 +9,9 @@ import { buildBuildings, buildAOGeometry } from './buildings.js';
 import { loadTextureArray, loadTexture, DETAIL_LAYERS, DETAIL_SIZE, GROUND_DETAIL, GROUND_DETAIL_SIZE } from './assets.js';
 import { buildGroundField, buildGroundRelief, placeGroundLife } from './groundfx.js';
 import { buildGround, buildMarkings } from './ground.js';
-import { makeTreeGeometries, makeFurnitureGeometries, InstanceGroup } from './props.js';
+import { makeFurnitureGeometries, InstanceGroup } from './props.js';
+import { TreeLibrary, TreeField } from './trees.js';
+import { plantTown } from './vegetation.js';
 import { buildLandmarks } from './landmarks.js';
 import { Reservoir } from './pantano.js';
 import { buildTrafficSigns } from './signs.js';
@@ -247,164 +249,21 @@ void main(){
   }
 
   // ------------------------------------------------------------ vegetation
+  // every species grown at start-up (trees.js), planted by what each place is (vegetation.js), drawn as instances:
+  // whole near the camera, lighter further off, billboards out to the horizon
   buildVegetation(G) {
-    const map = this.map;
-    const T = makeTreeGeometries(0);
-    const TL = makeTreeGeometries(1);
-    this.treeGeoms = T;
-    const fol = makeFoliageMaterial({ side: THREE.DoubleSide });
-    const groups = {};
-    this.lodGroups = this.lodGroups || [];
-    const grp = (k) => {
-      if (!groups[k]) {
-        groups[k] = new InstanceGroup(T[k], fol, { castShadow: true, chunk: 160, low: TL[k], lodDist: 140, maxDist: k === 'vina' || k === 'canas' ? 600 : 1300 });
-        this.lodGroups.push(groups[k]);
-      }
-      return groups[k];
-    };
-    const rnd = mulberry32(1234);
-    const col = this.map.collider;
-    const roadClear = (x, z, pad) => {
-      const q = map.nearestEdge(x, z, 12);
-      if (q && q.d < q.edge.w / 2 + pad) return false;
-      return true;
-    };
-    const free = (x, z, pad = 1.5) => !map.buildingAt(x, z) && roadClear(x, z, pad);
-    const circles = [];
-    const addTree = (kind, x, z, s = 1, trunkR = 0.35) => {
-      grp(kind).add(x, 0, z, rnd() * Math.PI * 2, s * (0.85 + rnd() * 0.3), s * (0.85 + rnd() * 0.35));
-      circles.push(x, z, trunkR * s);
-    };
-    // olive groves (OSM orchards + procedural parcels) — cap instance count
-    let olives = 0;
-    const maxOlives = this.q.trees;
-    const cx0 = -150, cz0 = 0;
-    const sortedPlots = [...G.olivePlots].sort((a, b) => {
-      const ca = ringBounds(a.ring), cb = ringBounds(b.ring);
-      return Math.hypot((ca[0] + ca[2]) / 2 - cx0, (ca[1] + ca[3]) / 2 - cz0) - Math.hypot((cb[0] + cb[2]) / 2 - cx0, (cb[1] + cb[3]) / 2 - cz0);
-    });
-    for (const p of sortedPlots) {
-      const [x0, z0, x1, z1] = ringBounds(p.ring);
-      const sp = p.spacing;
-      const ca = Math.cos(p.ang), sa = Math.sin(p.ang);
-      const cxp = (x0 + x1) / 2, czp = (z0 + z1) / 2;
-      const R = Math.hypot(x1 - x0, z1 - z0) / 2;
-      for (let u = -R; u <= R; u += sp) {
-        for (let v = -R; v <= R; v += sp) {
-          const x = cxp + u * ca - v * sa + (rnd() - 0.5) * 1.2, z = czp + u * sa + v * ca + (rnd() - 0.5) * 1.2;
-          if (!pointInRing(x, z, p.ring)) continue;
-          if (!free(x, z, 2.5)) continue;
-          if (olives++ > maxOlives) break;
-          addTree('olivo', x, z, 0.9 + rnd() * 0.35, 0.3);
-        }
-      }
-    }
-    // vineyards: rows of vine segments
-    let vines = 0;
-    for (const p of G.vinePlots) {
-      const [x0, z0, x1, z1] = ringBounds(p.ring);
-      const cxp = (x0 + x1) / 2, czp = (z0 + z1) / 2;
-      if (Math.hypot(cxp - cx0, czp - cz0) > 1500) continue;
-      const ca = Math.cos(p.ang), sa = Math.sin(p.ang);
-      const R = Math.hypot(x1 - x0, z1 - z0) / 2;
-      for (let v = -R; v <= R; v += 3.2) {
-        for (let u = -R; u <= R; u += 6) {
-          const x = cxp + u * ca - v * sa, z = czp + u * sa + v * ca;
-          if (!pointInRing(x, z, p.ring) || !free(x, z, 1.5)) continue;
-          if (vines++ > 2600) break;
-          grp('vina').add(x, 0, z, -p.ang, 1, 0.9 + rnd() * 0.2);
-        }
-      }
-    }
-    // forest around the reservoir: pines + eucalyptus
-    for (const a of G.forestPlots) {
-      const [x0, z0, x1, z1] = ringBounds(a.ring);
-      const area = Math.abs(ringArea(a.ring));
-      const n = Math.min(900, area / 90);
-      for (let i = 0; i < n; i++) {
-        const x = x0 + rnd() * (x1 - x0), z = z0 + rnd() * (z1 - z0);
-        if (!pointInRing(x, z, a.ring) || !free(x, z, 2)) continue;
-        addTree(rnd() < 0.7 ? 'pino' : 'eucalipto', x, z, 0.8 + rnd() * 0.4, 0.3);
-      }
-    }
-    // parks & plazas: shade trees; small plazas get orange trees
-    for (const a of G.parkPlots) {
-      const [x0, z0, x1, z1] = ringBounds(a.ring);
-      const area = Math.abs(ringArea(a.ring));
-      const n = Math.min(160, Math.max(2, area / 70));
-      const small = area < 1500;
-      for (let i = 0; i < n; i++) {
-        const x = x0 + rnd() * (x1 - x0), z = z0 + rnd() * (z1 - z0);
-        if (!pointInRing(x, z, a.ring) || !free(x, z, 1.5)) continue;
-        const r = rnd();
-        const kind = small ? (r < 0.6 ? 'naranjo' : r < 0.8 ? 'palmera' : 'arbusto') : (r < 0.35 ? 'platano' : r < 0.55 ? 'pino' : r < 0.72 ? 'encina' : r < 0.84 ? 'naranjo' : r < 0.92 ? 'palmera' : 'arbusto');
-        addTree(kind, x, z, 0.85 + rnd() * 0.3, kind === 'arbusto' ? 0.5 : 0.35);
-      }
-    }
-    // cemetery cypresses
-    for (const a of map.areas.filter((a) => a.kind === 'landuse:cemetery')) {
-      const r = a.ring;
-      for (let i = 0; i < r.length; i += 2) {
-        const j = (i + 2) % r.length;
-        const L = Math.hypot(r[j] - r[i], r[j + 1] - r[i + 1]);
-        for (let s = 3; s < L - 3; s += 7) {
-          const t = s / L;
-          const x = r[i] + (r[j] - r[i]) * t, z = r[i + 1] + (r[j + 1] - r[i + 1]) * t;
-          const [cx, cz] = [x + (-(r[j + 1] - r[i + 1]) / L) * -2.5, z + ((r[j] - r[i]) / L) * -2.5];
-          if (free(cx, cz, 1)) addTree('cipres', cx, cz, 1, 0.4);
-        }
-      }
-    }
-    // avenue trees: plane trees along wide streets (sidewalk line)
-    for (const e of map.edges) {
-      if (!e.drive || e.dirt || e.facade < 13 || e.len < 20) continue;
-      if (!['primary', 'tertiary', 'residential', 'unclassified', 'secondary'].includes(e.cls)) continue;
-      const off = e.w / 2 + Math.max(0.9, e.sw * 0.55);
-      for (let s = 6; s < e.len - 6; s += 11) {
-        for (const side of [1, -1]) {
-          const p = polySample(e.pts, e.cum, s, {});
-          const x = p.x - p.dz * off * side, z = p.z + p.dx * off * side;
-          if (!free(x, z, 0.6)) continue;
-          if (hash2(Math.floor(x), Math.floor(z)) < 0.2) continue;
-          addTree(e.cls === 'primary' ? 'platano' : (hash1(e.id) < 0.5 ? 'naranjo' : 'platano'), x, z, e.cls === 'primary' ? 0.95 : 0.8, 0.3);
-          (this.streetTrees || (this.streetTrees = [])).push({ x, z, dx: p.dx, dz: p.dz });
-        }
-      }
-    }
-    // country roads: eucalyptus rows here and there; stream reeds
-    for (const e of map.edges) {
-      if (!e.drive || e.cls !== 'tertiary' || map.inTown(e.pts[0], e.pts[1])) continue;
-      if (hash1(e.id * 3) < 0.5) continue;
-      const off = e.w / 2 + 4;
-      for (let s = 10; s < e.len - 10; s += 16) {
-        const p = polySample(e.pts, e.cum, s, {});
-        const x = p.x - p.dz * off, z = p.z + p.dx * off;
-        if (free(x, z, 3) && !map.inTown(x, z)) addTree('eucalipto', x, z, 0.9, 0.35);
-      }
-    }
-    for (const l of this.streams || []) {
-      const p = l.pts;
-      for (let i = 0; i < p.length - 2; i += 2) {
-        const L = Math.hypot(p[i + 2] - p[i], p[i + 3] - p[i + 1]);
-        for (let s = 0; s < L; s += 6) {
-          const t = s / L;
-          const x = p[i] + (p[i + 2] - p[i]) * t + (rnd() - 0.5) * 3, z = p[i + 1] + (p[i + 3] - p[i + 1]) * t + (rnd() - 0.5) * 3;
-          if (free(x, z, 1)) grp('canas').add(x, 0, z, rnd() * 6, 0.9 + rnd() * 0.4);
-          if (rnd() < 0.08 && free(x + 4, z, 2)) addTree('eucalipto', x + 4, z, 0.9, 0.35);
-        }
-      }
-    }
-    // reservoir: reeds in the shallows, encinas and eucalyptus on the banks
-    if (this.reservoir) {
-      for (const [x, z, r, s] of this.reservoir.reeds) grp('canas').add(x, 0, z, r, s);
-      for (const t of this.reservoir.trees) if (free(t.x, t.z, 2)) addTree(t.kind, t.x, t.z, t.s, 0.35);
-    }
-    // plaza orange trees & other hand-placed trees from the landmarks module
-    for (const t of this.extraTrees || []) if (free(t.x, t.z, 0.8)) addTree(t.kind, t.x, t.z, t.s || 1, 0.3);
-    for (const k in groups) groups[k].build(this.root);
+    const q = this.q;
+    const lib = new TreeLibrary(this.renderer || null, { variants: q.trees >= 4000 ? 3 : 2 });
+    const F = new TreeField(lib, { near: q.shadows > 1 ? 170 : q.shadows ? 140 : 110, d0: q.shadows > 1 ? 48 : q.shadows ? 36 : 26, dShadow: q.shadows > 1 ? 85 : 60 });
+    this.treeLib = lib; this.trees = F;
+    this.vegCounts = plantTown(this, G, F, q);
+    F.build(this.root);
+    // the pots on sills, balconies and doorsteps get their plants from the same leaves
+    if (this.facades) { this.facades.plantMat = lib.leafMat; this.facades.plantDepth = lib.depthMat; }
     // tree trunks collide
-    for (let i = 0; i < circles.length; i += 3) col.addCircle(circles[i], circles[i + 1], circles[i + 2], 6, -2);
-    this.treeCount = circles.length / 3;
+    const c = F.circles;
+    for (let i = 0; i < c.length; i += 3) if (c[i + 2] > 0.05) this.map.collider.addCircle(c[i], c[i + 1], c[i + 2], 6, -2);
+    this.treeCount = F.items.length;
   }
 
   // ------------------------------------------------------------ street furniture & lamps
@@ -740,6 +599,7 @@ void main(){
       if (this._lodT <= 0) {
         this._lodT = 0.25;
         for (const g of this.lodGroups || []) g.update(cam.x, cam.z);
+        if (this.trees) this.trees.update(cam.x, cam.z);
       }
     }
     if (this.glowMat) this.glowMat.opacity = clamp(night * 1.2, 0, 1);

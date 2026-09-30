@@ -7,7 +7,6 @@
 //  · vegetation invading the pavement: grass tufts and moss along the wall bases and kerbs, wild yellow flowers
 //    (jaramagos), dry grass and scrub in the yards and empty lots, weeds in the crumbling edges of back streets.
 import * as THREE from 'three';
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { GroundBuilder } from './ground.js';
 import { GROUND } from './textures.js';
 import { mulberry32, hash1, polySample, polyNearest, clamp, pointInRing } from './util.js';
@@ -331,142 +330,74 @@ export function buildGroundRelief(world, map, field) {
 }
 
 // ------------------------------------------------------------------ vegetation invading the pavement
-function blades(rnd, n, hMin, hMax, spread, cols, lean = 0.35) {
-  const pos = [], col = [];
-  const c = new THREE.Color();
-  for (let i = 0; i < n; i++) {
-    const a = rnd() * Math.PI * 2, r = rnd() * spread;
-    const x = Math.cos(a) * r, z = Math.sin(a) * r;
-    const h = hMin + rnd() * (hMax - hMin);
-    const w = 0.012 + rnd() * 0.012;
-    const la = rnd() * Math.PI * 2, l = lean * h * rnd();
-    const tx = x + Math.cos(la) * l, tz = z + Math.sin(la) * l;
-    const px = -Math.sin(a) * w, pz = Math.cos(a) * w;
-    c.set(cols[Math.floor(rnd() * cols.length)]).multiplyScalar(0.8 + rnd() * 0.35);
-    // both faces
-    pos.push(x - px, 0, z - pz, x + px, 0, z + pz, tx, h, tz, x + px, 0, z + pz, x - px, 0, z - pz, tx, h, tz);
-    for (let k = 0; k < 6; k++) col.push(c.r * (k % 3 === 2 ? 1.15 : 0.75), c.g * (k % 3 === 2 ? 1.15 : 0.75), c.b * (k % 3 === 2 ? 1.1 : 0.75));
-  }
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
-  g.computeVertexNormals();
-  // grass lit from above: bend the normals upwards so both faces shade alike
-  const nrm = g.attributes.normal;
-  for (let i = 0; i < nrm.count; i++) { const y = nrm.getY(i); nrm.setXYZ(i, nrm.getX(i) * 0.35, Math.abs(y) * 0.3 + 0.9, nrm.getZ(i) * 0.35); }
-  return g;
-}
-function flowerHeads(rnd, n, spread, h0, h1, color) {
-  const parts = [];
-  for (let i = 0; i < n; i++) {
-    const g = new THREE.TetrahedronGeometry(0.02 + rnd() * 0.012);
-    const a = rnd() * Math.PI * 2, r = rnd() * spread;
-    g.translate(Math.cos(a) * r, h0 + rnd() * (h1 - h0), Math.sin(a) * r);
-    const nv = g.attributes.position.count;
-    const c = new THREE.Color(color);
-    const col = new Float32Array(nv * 3);
-    for (let k = 0; k < nv; k++) { col[k * 3] = c.r; col[k * 3 + 1] = c.g; col[k * 3 + 2] = c.b; }
-    g.deleteAttribute('uv');
-    g.setAttribute('color', new THREE.BufferAttribute(col, 3));
-    parts.push(g);
-  }
-  return parts;
-}
-function mergeAll(list) {
-  const g = mergeGeometries(list.map((x) => { const y = x.index ? x.toNonIndexed() : x; if (y.attributes.uv) y.deleteAttribute('uv'); return y; }), false);
-  g.computeBoundingSphere();
-  return g;
-}
-export function makeWeedGeometries() {
-  const rnd = mulberry32(8080);
-  const W = {};
-  W.hierba = mergeAll([blades(rnd, 9, 0.08, 0.22, 0.05, ['#4f7d33', '#5f8a3a', '#6f9440', '#8a9a4a'])]);
-  W.hierbaAlta = mergeAll([blades(rnd, 12, 0.18, 0.42, 0.08, ['#5f8a3a', '#7a9040', '#9aa050', '#b0a860'], 0.5)]);
-  W.hierbaSeca = mergeAll([blades(rnd, 12, 0.15, 0.4, 0.08, ['#c8b27a', '#b89e62', '#d8c48c', '#a08a58'], 0.55)]);
-  W.jaramago = mergeAll([blades(rnd, 6, 0.3, 0.55, 0.06, ['#5f8a3a', '#6f8a40'], 0.2), ...flowerHeads(rnd, 9, 0.12, 0.3, 0.55, '#f2d22a')]);
-  W.amapola = mergeAll([blades(rnd, 5, 0.22, 0.4, 0.05, ['#5f8a3a', '#6f9440'], 0.25), ...flowerHeads(rnd, 4, 0.08, 0.25, 0.4, '#d8261e')]);
-  {
-    // rosette (dandelion / plantain): flat leaves lying on the ground
-    const pos = [], col = [];
-    const c = new THREE.Color('#4a7a30');
-    for (let i = 0; i < 7; i++) {
-      const a = (i / 7) * Math.PI * 2 + rnd() * 0.4, L = 0.07 + rnd() * 0.06, w = 0.025;
-      const ex = Math.cos(a) * L, ez = Math.sin(a) * L, px = -Math.sin(a) * w, pz = Math.cos(a) * w;
-      pos.push(0, 0.012, 0, ex * 0.5 + px, 0.018, ez * 0.5 + pz, ex, 0.01, ez, 0, 0.012, 0, ex, 0.01, ez, ex * 0.5 - px, 0.018, ez * 0.5 - pz);
-      const v = 0.85 + rnd() * 0.3;
-      for (let k = 0; k < 6; k++) col.push(c.r * v, c.g * v, c.b * v);
-    }
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-    g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
-    g.computeVertexNormals();
-    const n = g.attributes.normal;
-    for (let i = 0; i < n.count; i++) n.setXYZ(i, 0, 1, 0);
-    g.computeBoundingSphere();
-    W.roseta = g;
-  }
-  {
-    // scrub bush (matorral / retama) for yards and the edge of town
-    const b = new THREE.IcosahedronGeometry(0.35, 1);
-    const p = b.attributes.position;
-    const seen = new Map();
-    for (let i = 0; i < p.count; i++) {
-      const k = `${p.getX(i).toFixed(3)},${p.getY(i).toFixed(3)},${p.getZ(i).toFixed(3)}`;
-      let s = seen.get(k); if (s === undefined) { s = 0.8 + rnd() * 0.45; seen.set(k, s); }
-      p.setXYZ(i, p.getX(i) * s, Math.max(-0.05, p.getY(i) * s * 0.75) + 0.28, p.getZ(i) * s);
-    }
-    const g = b.toNonIndexed();
-    g.deleteAttribute('uv');
-    const col = new Float32Array(g.attributes.position.count * 3);
-    const c1 = new THREE.Color('#6b7a45'), c2 = new THREE.Color('#8a8a55');
-    for (let i = 0; i < col.length / 3; i += 3) { const c = rnd() < 0.5 ? c1 : c2; const v = 0.8 + rnd() * 0.3; for (let k = 0; k < 3; k++) { col[(i + k) * 3] = c.r * v; col[(i + k) * 3 + 1] = c.g * v; col[(i + k) * 3 + 2] = c.b * v; } }
-    g.setAttribute('color', new THREE.BufferAttribute(col, 3));
-    g.computeVertexNormals();
-    g.computeBoundingSphere();
-    W.matorral = g;
-  }
-  return W;
-}
-
-// place the vegetation through the streamed detail chunks (merged, one draw call per chunk, only close to the camera)
+// the wild plants of a town of the Vegas Altas in late spring: grass, pellitory and mallow at the foot of the walls,
+// rosettes in the joints of the kerb, daisies in the tree pits, and in the yards and empty lots golden wild oats,
+// yellow wild mustard, poppies, thistles and broom. Grown on the trees' leaf cards (trees.js groundPlant) inside the
+// streamed detail chunks, one draw call per chunk, only close to the camera.
 export function placeGroundLife(world, map, field, weedSpots) {
-  const W = makeWeedGeometries();
   const fd = world.facades;
-  const put = (k, x, z, ry, s) => fd.addProp(W[k], x, 0, z, ry, s, s, null, true);
   const rnd = mulberry32(31337);
+  const put = (k, x, z, s) => { fd.addPlant(k, x, 0, z, s, (rnd() * 4294967296) >>> 0); n++; };
   let n = 0;
   const zone = (x, z) => clamp(0.25 + field.age(x, z) * 0.55 + field.green(x, z) * 0.6, 0, 1.4);
-  const pickWeed = (x, z) => {
+  // squares, pedestrian streets and the market are swept every morning; parks, schools and pitches are looked after;
+  // empty lots and the industrial estate are left to themselves
+  const KEPT = { 'place:square': 0.2, 'highway:pedestrian': 0.2, 'amenity:marketplace': 0.25, 'leisure:park': 0.5, 'landuse:village_green': 0.5, 'amenity:school': 0.5, 'amenity:college': 0.5, 'amenity:clinic': 0.4, 'landuse:cemetery': 0.6 };
+  const care = (x, z) => { const a = map.areaAt(x, z); return a ? KEPT[a.kind] ?? 1 : 1; };
+  const LOT = (k) => k === undefined || k === 'landuse:residential' || k === 'landuse:grass' || k === 'landuse:industrial' || k === 'man_made:works' || k === 'landuse:military';
+  // what grows where
+  const pick = (where, x, z) => {
     const g = field.green(x, z), r = rnd();
-    if (r < 0.08 + g * 0.1) return 'jaramago';
-    if (r < 0.12 + g * 0.08) return 'amapola';
-    if (r < 0.3) return 'roseta';
-    if (r < 0.45 + g * 0.2) return 'hierbaAlta';
-    if (r < 0.62) return 'hierbaSeca';
-    return 'hierba';
+    if (where === 'wall') {
+      if (r < 0.1 + g * 0.08) return 'malva';
+      if (r < 0.17 + g * 0.14) return 'jaramago';
+      if (r < 0.29 + g * 0.14) return 'roseta';
+      if (r < 0.35 + g * 0.16) return 'margarita';
+      if (r < 0.47 + g * 0.1) return 'hierbaSeca';
+      if (r < 0.57 + g * 0.1) return 'hierbaAlta';
+      return 'hierba';
+    }
+    if (where === 'kerb') return r < 0.42 ? 'roseta' : r < 0.82 ? 'hierba' : 'hierbaSeca';
+    if (where === 'pit') return r < 0.3 ? 'hierba' : r < 0.5 ? 'margarita' : r < 0.66 ? 'malva' : r < 0.8 ? 'roseta' : r < 0.9 ? 'hierbaAlta' : 'amapola';
+    // yards, empty lots, the verges at the edge of town
+    if (r < 0.3) return 'avena';
+    if (r < 0.48) return 'hierbaSeca';
+    if (r < 0.58 + g * 0.05) return 'jaramago';
+    if (r < 0.65 + g * 0.03) return 'cardo';
+    if (r < 0.71) return 'malva';
+    if (r < 0.76 + g * 0.06) return 'amapola';
+    if (r < 0.8 + g * 0.08) return 'margarita';
+    return 'hierbaAlta';
   };
+  const size = (k) => (k === 'matorral' ? 0.7 + rnd() * 0.7 : k === 'roseta' ? 0.7 + rnd() * 0.6 : 0.75 + rnd() * 0.55);
+  // poppies, daisies and mustard never grow alone: a few more round the first
+  const clump = (k, x, z, r, m) => { for (let c = 0; c < m; c++) { const a = rnd() * 6.28, d = r * Math.sqrt(rnd()), cx = x + Math.cos(a) * d, cz = z + Math.sin(a) * d; if (!map.buildingAt(cx, cz)) put(k, cx, cz, size(k)); } };
   // 1) along the wall bases (where the pavement meets the facades)
   const ao = world.aoLines || [];
   for (let k = 0; k < ao.length; k += 6) {
     const ax = ao[k], az = ao[k + 1], bx = ao[k + 2], bz = ao[k + 3], nx = ao[k + 4], nz = ao[k + 5];
     const L = Math.hypot(bx - ax, bz - az);
     if (!map.inTown(ax, az)) continue;
-    const zf = zone((ax + bx) / 2, (az + bz) / 2);
+    const zf = zone((ax + bx) / 2, (az + bz) / 2) * care((ax + bx) / 2, (az + bz) / 2);
     const gr = field.green((ax + bx) / 2, (az + bz) / 2);
+    const tx = (bx - ax) / L, tz = (bz - az) / L;
     for (let s = 0.2; s < L - 0.2; s += 0.45) {
       if (rnd() > 0.045 * zf) continue;
-      const t = s / L, off = 0.05 + rnd() * 0.12;
+      const t = s / L, off = 0.05 + rnd() * 0.1;
       const x = ax + (bx - ax) * t + nx * off, z = az + (bz - az) * t + nz * off;
-      put(pickWeed(x, z), x, z, rnd() * 6.28, 0.7 + rnd() * 0.6); n++;
-      if (rnd() < 0.4) { const x2 = x + (bx - ax) / L * 0.12, z2 = z + (bz - az) / L * 0.12; put('hierba', x2, z2, rnd() * 6.28, 0.6 + rnd() * 0.5); n++; }
+      const kind = pick('wall', x, z);
+      put(kind, x, z, size(kind) * 0.85);
+      // a weed at the foot of a wall is rarely alone: its neighbours follow the joint
+      if (rnd() < 0.45) { const d = (rnd() < 0.5 ? -1 : 1) * (0.1 + rnd() * 0.2); put('hierba', x + tx * d, z + tz * d, 0.6 + rnd() * 0.5); }
+      if (kind === 'margarita' || kind === 'jaramago') clump(kind, x + nx * 0.1, z + nz * 0.1, 0.3, 1 + Math.floor(rnd() * 2));
       // near parks and the edge of town the verge takes over: scrub and tall weeds spilling onto the pavement
       if (gr > 0.45 && rnd() < gr * 0.35) {
         const cn = 2 + Math.floor(rnd() * 4);
         for (let c = 0; c < cn; c++) {
           const o2 = 0.1 + rnd() * 0.6, a2 = (rnd() - 0.5) * 1.2;
-          const x3 = x + nx * o2 + (bx - ax) / L * a2, z3 = z + nz * o2 + (bz - az) / L * a2;
-          const k = rnd() < 0.3 ? 'matorral' : rnd() < 0.55 ? 'hierbaAlta' : rnd() < 0.75 ? 'jaramago' : 'hierbaSeca';
-          put(k, x3, z3, rnd() * 6.28, k === 'matorral' ? 0.45 + rnd() * 0.5 : 0.8 + rnd() * 0.6); n++;
+          const x3 = x + nx * o2 + tx * a2, z3 = z + nz * o2 + tz * a2;
+          const r2 = rnd(), k2 = r2 < 0.2 ? 'matorral' : r2 < 0.45 ? 'avena' : r2 < 0.62 ? 'jaramago' : r2 < 0.74 ? 'malva' : r2 < 0.84 ? 'cardo' : 'hierbaAlta';
+          put(k2, x3, z3, size(k2) * (k2 === 'matorral' ? 0.7 : 1));
         }
       }
     }
@@ -485,7 +416,7 @@ export function placeGroundLife(world, map, field, weedSpots) {
       const off = kerb ? hw + 0.3 + rnd() * 0.04 : hw - 0.04 - rnd() * 0.08;
       const x = tmp.x - tmp.dz * off * side, z = tmp.z + tmp.dx * off * side;
       if (map.buildingAt(x, z)) continue;
-      put(rnd() < 0.3 ? 'roseta' : pickWeed(x, z), x, z, rnd() * 6.28, 0.6 + rnd() * 0.5); n++;
+      put(kerb ? pick('kerb', x, z) : pick(rnd() < 0.5 ? 'kerb' : 'wall', x, z), x, z, 0.6 + rnd() * 0.45);
     }
   }
   // 3) tree pits and broken tiles
@@ -493,7 +424,8 @@ export function placeGroundLife(world, map, field, weedSpots) {
     for (let i = 0; i < w.n; i++) {
       const a = rnd() * 6.28, r = rnd() * w.r;
       const x = w.x + Math.cos(a) * r, z = w.z + Math.sin(a) * r;
-      put(w.kind === 'pit' ? pickWeed(x, z) : (rnd() < 0.5 ? 'hierba' : 'roseta'), x, z, rnd() * 6.28, 0.6 + rnd() * 0.5); n++;
+      if (w.kind === 'pit') put(pick('pit', x, z), x, z, 0.6 + rnd() * 0.45);
+      else put(rnd() < 0.55 ? 'hierba' : 'roseta', x, z, 0.5 + rnd() * 0.4);
     }
   }
   // 4) yards, empty lots and the edge of town: patches of dry grass, wild flowers and scrub away from the streets
@@ -504,15 +436,18 @@ export function placeGroundLife(world, map, field, weedSpots) {
     const rd = field.road(x, z);
     if (rd < 6.5 || rd > 60 || field.facade(x, z) < 4) continue;
     if (!map.inTown(x, z) || map.buildingAt(x, z)) continue;
-    const g = field.green(x, z), zf = zone(x, z);
+    const ar = map.areaAt(x, z);
+    if (!LOT(ar && ar.kind)) continue;
+    const g = field.green(x, z), zf = zone(x, z) * (ar && ar.kind === 'landuse:industrial' ? 1.5 : 1);
     if (rnd() > 0.35 * zf) continue;
-    // a small clump rather than a lonely tuft
-    const cn = 2 + Math.floor(rnd() * 5);
+    // a patch of one thing with a few others through it, rather than a lonely tuft
+    const main = rnd() < 0.08 + g * 0.1 ? 'matorral' : pick('lot', x, z);
+    const cn = 3 + Math.floor(rnd() * 6);
     for (let c = 0; c < cn; c++) {
-      const cx = x + (rnd() - 0.5) * 1.6, cz = z + (rnd() - 0.5) * 1.6;
+      const cx = x + (rnd() - 0.5) * 2, cz = z + (rnd() - 0.5) * 2;
       if (map.buildingAt(cx, cz)) continue;
-      const k = rnd() < 0.08 + g * 0.1 ? 'matorral' : rnd() < 0.55 ? 'hierbaSeca' : pickWeed(cx, cz);
-      put(k, cx, cz, rnd() * 6.28, k === 'matorral' ? 0.7 + rnd() * 0.7 : 0.8 + rnd() * 0.7); n++;
+      const k = c === 0 || rnd() < 0.55 ? main : pick('lot', cx, cz);
+      put(k, cx, cz, size(k));
     }
   }
   world.groundLifeStats = { weeds: n };

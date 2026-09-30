@@ -733,31 +733,6 @@ if (gGH != 0.0) {
   return m;
 }
 
-// Vertex-coloured material with gentle wind sway for foliage (applies to instanced meshes).
-export function makeFoliageMaterial(params = {}) {
-  const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, metalness: 0, ...params });
-  m.onBeforeCompile = (sh) => {
-    sh.uniforms.uTime = shared.uTime;
-    sh.uniforms.uWind = shared.uWind;
-    sh.vertexShader = sh.vertexShader
-      .replace('#include <common>', `#include <common>
-uniform float uTime; uniform float uWind;`)
-      .replace('#include <begin_vertex>', `#include <begin_vertex>
-{
-  float sway = max(0.0, position.y - 1.0) * 0.018 * uWind;
-  vec3 ip = vec3(0.0);
-  #ifdef USE_INSTANCING
-    ip = vec3(instanceMatrix[3][0], 0.0, instanceMatrix[3][2]);
-  #endif
-  float ph = ip.x * 0.37 + ip.z * 0.21;
-  transformed.x += sin(uTime * 1.3 + ph) * sway;
-  transformed.z += cos(uTime * 1.1 + ph * 1.3) * sway * 0.7;
-}`);
-  };
-  m.customProgramCacheKey = () => 'fol1';
-  return m;
-}
-
 // Emissive-at-night basic material (street lamps, signs). Brightness follows uNight.
 export function makeNightGlowMaterial(color, { dayLevel = 0.0, nightLevel = 3.0, map = null, transparent = false, additive = false } = {}) {
   const m = new THREE.MeshBasicMaterial({ color, map, transparent, depthWrite: !transparent, toneMapped: true });

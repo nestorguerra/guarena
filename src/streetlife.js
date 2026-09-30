@@ -14,6 +14,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { paint, InstanceGroup } from './props.js';
 import { mulberry32, hash1, polySample, polyNearest, clamp, pointInRing, ringBounds, ringArea } from './util.js';
 import { makeNightGlowMaterial } from './materials.js';
+import { groundPot } from './facades.js';
 
 const at = (g, x, y, z) => { g.translate(x, y, z); return g; };
 function merged(list) {
@@ -312,7 +313,14 @@ export function buildStreetLife(world, map, q) {
   // static props go into the streamed detail chunks (merged, one draw call per chunk); tiny ones only up close
   const FINE = new Set(['papel', 'periodico', 'lata', 'botella', 'bolsaPlastico', 'vaso', 'escoba', 'gatoSentado', 'gatoTumbado', 'carro', 'pizarra']);
   const tmpC = new THREE.Color();
+  const POTS = new Set(['macetaGeranio', 'macetaGitanilla', 'macetaAspidistra', 'maceton']);
+  let potSeed = 5;
   const put = (k, x, y, z, ang, s = 1, color = null) => {
+    if (POTS.has(k)) { // pots are built with their plants (leaf cards) when their chunk streams in
+      const seed = potSeed++;
+      world.facades.addBuild(x, z, k === 'maceton' ? 1 : 0.5, (Gb, Fb, Pb) => groundPot(Gb, Pb, k, x, y, z, s, mulberry32(seed * 7919)));
+      return;
+    }
     const tint = color != null ? (tmpC.setHex(color), [tmpC.r, tmpC.g, tmpC.b]) : null;
     world.facades.addProp(G[k], x, y, z, ang, s, s, tint, FINE.has(k));
   };

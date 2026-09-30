@@ -101,6 +101,7 @@ export class Game {
     await tick();
     this.map = new MapData(this.raw);
     this.world = new World(this.scene, this.map, q);
+    this.world.renderer = r; // (the trees bake their far-off billboards with it)
     await this.world.build((l, f) => progress(l, 0.05 + f * 0.7));
     progress('Poniendo el sol sobre las Vegas…', 0.78);
     await tick();

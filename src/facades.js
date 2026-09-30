@@ -6,6 +6,7 @@
 import * as THREE from 'three';
 import { BAY_W, FLOOR_H, STYLE_DEF } from './textures.js';
 import { mulberry32, clamp } from './util.js';
+import { CardGeo, potPlant, groundPlant, GROUND_KINDS } from './trees.js';
 
 // facade cell types = painted layer index inside a style
 export const CT = { WIN_G: 0, DOOR: 1, GARAGE: 2, WIN_U: 3, BALC: 4, BLANK_G: 5, BLANK_U: 6, SHOP: 7 };
@@ -265,7 +266,7 @@ const C = {
   iron: hexC('#1c1c1e'), ironGreen: hexC('#2f3b30'), ironWhite: hexC('#eeede7'), ironBrown: hexC('#4d3322'),
   alu: hexC('#b9bbb8'), aluWhite: hexC('#eeeeea'), aluBronze: hexC('#5a4636'), anth: hexC('#2c2e31'),
   marble: hexC('#ece6da'), terracotta: hexC('#b36a45'), granite: hexC('#cfc6b4'), graniteDk: hexC('#9e978a'), step: hexC('#d9d2c2'),
-  pot: hexC('#b5552e'), potBlue: hexC('#2f64a8'), potWhite: hexC('#e9e6de'), leaf: hexC('#3f7a35'), leaf2: hexC('#2f6a2c'),
+  pot: hexC('#b5552e'), potBlue: hexC('#2f64a8'), potWhite: hexC('#e9e6de'), potGreen: hexC('#3f6e4a'), soil: hexC('#3b2b1f'), leaf: hexC('#3f7a35'), leaf2: hexC('#2f6a2c'),
   red: hexC('#d8263a'), pink: hexC('#e8487a'), whiteFl: hexC('#f4f1ea'), purple: hexC('#8a4fa8'),
   glassDk: hexC('#27323c'), brass: hexC('#b08d3c'), metal: hexC('#8e9295'), metalDk: hexC('#6d7175'), pipe: hexC('#9fa3a6'),
   ac: hexC('#ecece8'), acDk: hexC('#3a3c3e'), plate: hexC('#f4f6f8'), tileBlue: hexC('#2f5aa0'), vadoRed: hexC('#c8202a'), vadoBlue: hexC('#2d56a8'),
@@ -342,9 +343,24 @@ function persianaLevel(rnd) {
   return r < 0.16 ? 0 : r < 0.6 ? 0.12 + rnd() * 0.45 : r < 0.84 ? 0.6 + rnd() * 0.32 : 1;
 }
 
+// the plants' cards of the chunk being built (see FacadeDetails.build); the pots go into the solid geometry
+let CUR_P = null;
+// a clay pot: tapered, with its rolled rim and the soil inside
+function potBody(G, x, y, z, r, h, col) {
+  G.cyl(x, z, y, y + h, r * 0.74, r, 9, col);
+  G.cyl(x, z, y + h - r * 0.24, y + h + r * 0.04, r * 1.1, r * 1.1, 9, mul(col, 0.9));
+  G.cyl(x, z, y + h - r * 0.1, y + h - r * 0.1, r * 1.0, r * 1.0, 9, C.soil, true);
+}
 function flowerPot(G, x, y, z, r, rnd, hanging = false) {
   const pr = rnd();
-  const pc = pr < 0.7 ? C.pot : pr < 0.85 ? C.potBlue : C.potWhite;
+  const pc = pr < 0.72 ? C.pot : pr < 0.86 ? C.potBlue : pr < 0.95 ? C.potWhite : C.potGreen;
+  if (CUR_P) { // geraniums above all, trailing ivy geraniums on the railings, a spider plant, an aspidistra
+    const h = r * 1.6;
+    potBody(G, x, y, z, r, h, pc);
+    const kind = hanging ? (rnd() < 0.75 ? 'gitanilla' : 'geranio') : pickR(rnd, ['geranio', 'geranio', 'geranio', 'geranio', 'cinta', 'aspidistra', 'gitanilla', 'mata']);
+    potPlant(CUR_P, kind, x, y + h - r * 0.1, z, r, rnd);
+    return;
+  }
   G.cyl(x, z, y, y + r * 1.7, r * 0.75, r, 7, pc);
   const fl = pickR(rnd, [C.red, C.red, C.pink, C.whiteFl, C.purple]);
   const leaf = rnd() < 0.5 ? C.leaf : C.leaf2;
@@ -640,6 +656,7 @@ function buildOpening(G, F, o) {
   const rnd = mulberry32(((o.pid + 3) * 73856093 ^ (o.b * 19349663) ^ (o.f * 83492791)) >>> 0);
   G.frame(o.ox, o.oy, o.oz, o.tx, o.tz, o.nx, o.nz);
   F.frame(o.ox, o.oy, o.oz, o.tx, o.tz, o.nx, o.nz);
+  if (CUR_P) CUR_P.frame(o.ox, o.oy, o.oz, o.tx, o.tz, o.nx, o.nz);
   switch (o.type) {
     case CT.WIN_G: buildWindow(G, F, o, bs, rnd, false); break;
     case CT.WIN_U: buildWindow(G, F, o, bs, rnd, true); break;
@@ -649,6 +666,21 @@ function buildOpening(G, F, o) {
     case CT.SHOP: buildShop(G, F, o, bs, rnd); break;
     default: break;
   }
+}
+
+// a pot standing on the ground (world space): 'macetaGeranio', 'macetaGitanilla', 'macetaAspidistra', 'maceton'
+export function groundPot(G, P, kind, x, y, z, s, rnd) {
+  if (kind === 'maceton') { // the town's square concrete planter with a clipped shrub
+    const h = 0.5 * s, w = 0.45 * s;
+    G.box(x - w, y, z - w, x + w, y + h, z + w, hexC('#b9b3a6'), 0, 1 | 2 | 4 | 16 | 32);
+    G.box(x - w * 0.9, y + h - 0.02, z - w * 0.9, x + w * 0.9, y + h - 0.01, z + w * 0.9, C.soil, 0, 4);
+    if (P) { potPlant(P, 'mata', x, y + h - 0.02, z, 0.32 * s, rnd); potPlant(P, 'geranio', x + w * 0.5, y + h - 0.02, z - w * 0.4, 0.16 * s, rnd); }
+    return;
+  }
+  const r = (kind === 'macetaGitanilla' ? 0.13 : kind === 'macetaAspidistra' ? 0.17 : 0.16) * s, h = r * 1.6;
+  const pr = rnd(), pc = pr < 0.75 ? C.pot : pr < 0.88 ? C.potWhite : C.potBlue;
+  potBody(G, x, y, z, r, h, pc);
+  if (P) potPlant(P, kind === 'macetaGitanilla' ? 'gitanilla' : kind === 'macetaAspidistra' ? (rnd() < 0.5 ? 'aspidistra' : 'cinta') : (rnd() < 0.25 ? 'geranioAlto' : 'geranio'), x, y + h - r * 0.1, z, r, rnd);
 }
 
 // ------------------------------------------------------------------ streaming manager
@@ -680,6 +712,23 @@ export class FacadeDetails {
     this.count = openings.length;
     this.nProps = 0;
   }
+  // something built into the chunk at (x, z) when it is streamed in: fn(G, F, P) in world space (G solid, F fine, P plants)
+  addBuild(x, z, r, fn) {
+    const n0 = this.chunks.size;
+    const c = this.get(x, z);
+    (c.fns || (c.fns = [])).push(fn);
+    this.grow(c, x, z, r);
+    if (this.chunks.size !== n0) this.list.push(c);
+  }
+  // a wild plant of the ground (trees.js GROUND_KINDS), grown on the leaf cards when its chunk is streamed in
+  addPlant(kind, x, y, z, s, seed) {
+    const n0 = this.chunks.size;
+    const c = this.get(x, z);
+    (c.plants || (c.plants = [])).push(GROUND_KINDS.indexOf(kind), x, y, z, s, seed);
+    this.grow(c, x, z, s);
+    if (this.chunks.size !== n0) this.list.push(c);
+    this.nPlants = (this.nPlants || 0) + 1;
+  }
   // static street props merged into the same streamed chunks (one draw call per chunk for everything near the camera)
   addProp(geo, x, y, z, ry = 0, s = 1, sy = s, tint = null, fine = false) {
     const n0 = this.chunks.size;
@@ -701,6 +750,7 @@ export class FacadeDetails {
       if (ch.built) {
         if (ch.mesh) { ch.mesh.visible = d < near + 6; ch.mesh.castShadow = d < this.shadowDist; }
         if (ch.fineMesh) { ch.fineMesh.visible = d < this.fine; ch.fineMesh.castShadow = d < this.shadowDist * 0.6; }
+        if (ch.plantMesh) { ch.plantMesh.visible = d < this.fine * 1.25; ch.plantMesh.castShadow = d < this.shadowDist * 0.5; }
         if (d > near + 90) this.drop(ch);
       } else if (d < near + 30) need.push(ch);
     }
@@ -711,8 +761,16 @@ export class FacadeDetails {
     }
   }
   build(ch) {
-    const G = new Geo(), F = new Geo();
+    const G = new Geo(), F = new Geo(), P = this.plantMat ? new CardGeo() : null;
+    CUR_P = P;
     for (const o of ch.ops) buildOpening(G, F, o);
+    if (ch.fns) { G.frame(0, 0, 0, 1, 0, 0, 1); F.frame(0, 0, 0, 1, 0, 0, 1); if (P) P.world(); for (const fn of ch.fns) fn(G, F, P); }
+    if (ch.plants && P) {
+      P.world();
+      const pl = ch.plants;
+      for (let k = 0; k < pl.length; k += 6) groundPlant(P, GROUND_KINDS[pl[k]], pl[k + 1], pl[k + 2], pl[k + 3], pl[k + 4], mulberry32(pl[k + 5]));
+    }
+    CUR_P = null;
     for (const r of ch.runs) buildRun(G, r, buildingStyle(r), mulberry32(((r.pid + 11) * 2246822519 + Math.round(r.ax * 10)) >>> 0));
     if (ch.props) {
       const pr = ch.props;
@@ -721,11 +779,13 @@ export class FacadeDetails {
     ch.built = true;
     ch.mesh = G.build(this.mat);
     ch.fineMesh = F.build(this.mat);
+    ch.plantMesh = P ? P.build(this.plantMat, this.plantDepth) : null;
     if (ch.mesh) { ch.mesh.visible = ch.d < this.near + 6; ch.mesh.castShadow = ch.d < this.shadowDist; this.root.add(ch.mesh); }
     if (ch.fineMesh) { ch.fineMesh.visible = ch.d < this.fine; this.root.add(ch.fineMesh); }
+    if (ch.plantMesh) { ch.plantMesh.visible = ch.d < this.fine * 1.25; this.root.add(ch.plantMesh); }
   }
   drop(ch) {
-    for (const k of ['mesh', 'fineMesh']) {
+    for (const k of ['mesh', 'fineMesh', 'plantMesh']) {
       const m = ch[k];
       if (!m) continue;
       this.root.remove(m);

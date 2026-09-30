@@ -21,6 +21,7 @@ const raw = await (await fetch('data/map.json')).json();
 const map = new MapData(raw);
 const t0 = performance.now();
 const world = new World(scene, map, quality);
+world.renderer = renderer;
 await world.build((l, f) => { info.textContent = l + ' ' + Math.round(f * 100) + '%'; });
 const sky = new SkySystem(renderer, scene, quality);
 sky.hour = parseFloat(params.get('h') || '18.3');

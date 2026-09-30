@@ -1,6 +1,6 @@
 // Low-poly vertex-coloured prop geometry (trees of Extremadura, street furniture) + instanced placement helpers.
 import * as THREE from 'three';
-import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { mulberry32 } from './util.js';
 
 const _c = new THREE.Color();
@@ -27,176 +27,11 @@ export function paint(geo, color, vary = 0, rnd = Math.random, shadeY = null) {
   if (geo.attributes.uv) geo.deleteAttribute('uv');
   return geo;
 }
-function blob(r, detail, rnd, squash = 1, bump = 0.25) {
-  let g = new THREE.IcosahedronGeometry(r, detail);
-  g.deleteAttribute('normal');
-  g.deleteAttribute('uv');
-  g = mergeVertices(g, 1e-4);
-  const p = g.attributes.position;
-  for (let i = 0; i < p.count; i++) {
-    const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
-    const n = 1 + (Math.sin(x * 3.1 / r) * Math.cos(z * 2.7 / r) * 0.5 + (rnd() - 0.5)) * bump;
-    p.setXYZ(i, x * n, y * n * squash, z * n);
-  }
-  g.computeVertexNormals();
-  return g;
-}
 const at = (g, x, y, z) => { g.translate(x, y, z); return g; };
 function merged(list) {
   const g = mergeGeometries(list.map((x) => (x.index ? x.toNonIndexed() : x)), false);
   g.computeVertexNormals();
   return g;
-}
-// Keep flat-ish normals on foliage by recomputing per blob before merge (already done), merge without recompute
-function mergedKeep(list) {
-  return mergeGeometries(list.map((x) => (x.index ? x.toNonIndexed() : x)), false);
-}
-
-// ---------------------------------------------------------------- trees
-export function makeTreeGeometries(lod = 0) {
-  const rnd = mulberry32(99);
-  const T = {};
-  const D = lod ? 0 : 1; // icosahedron detail for foliage blobs
-  const blobL = (r, d, rr, sq, bm) => blob(r, Math.min(d, D + (d > 1 ? 1 : 0)), rr, sq, bm);
-  // Olive (olivo): gnarled short trunk(s), silvery grey-green irregular crown
-  {
-    const trunk = [];
-    for (let k = 0; k < 2; k++) {
-      const t = new THREE.CylinderGeometry(0.12, 0.26, 1.7, 6, 2);
-      const p = t.attributes.position;
-      for (let i = 0; i < p.count; i++) p.setX(i, p.getX(i) + Math.sin(p.getY(i) * 2.5 + k) * 0.12);
-      t.rotateZ((k ? -0.25 : 0.2));
-      trunk.push(paint(at(t, k ? 0.25 : -0.2, 0.8, 0), '#5a4a3a', 0.2, rnd));
-    }
-    const leaves = [];
-    for (let k = 0; k < 5; k++) {
-      const a = (k / 5) * Math.PI * 2;
-      const b = blobL(1.1 + rnd() * 0.4, 1, rnd, 0.72, 0.3);
-      leaves.push(paint(at(b, Math.cos(a) * 1.0, 2.2 + rnd() * 0.6, Math.sin(a) * 1.0), '#76845a', 0.25, rnd, [0.72, 1.12]));
-    }
-    leaves.push(paint(at(blobL(1.2, 1, rnd, 0.7), 0, 2.9, 0), '#809063', 0.2, rnd, [0.8, 1.15]));
-    T.olivo = mergedKeep([...trunk, ...leaves]);
-  }
-  // Holm oak (encina): dark dense wide crown
-  {
-    const parts = [paint(at(new THREE.CylinderGeometry(0.22, 0.38, 2.6, 7), 0, 1.3, 0), '#4b3d31', 0.15, rnd)];
-    for (let k = 0; k < 7; k++) {
-      const a = (k / 7) * Math.PI * 2;
-      parts.push(paint(at(blobL(1.6 + rnd() * 0.5, 1, rnd, 0.7), Math.cos(a) * 1.8, 3.6 + rnd() * 0.8, Math.sin(a) * 1.8), '#3f5433', 0.22, rnd, [0.65, 1.1]));
-    }
-    parts.push(paint(at(blobL(2.0, 1, rnd, 0.65), 0, 4.6, 0), '#46603a', 0.2, rnd, [0.75, 1.15]));
-    T.encina = mergedKeep(parts);
-  }
-  // Plane tree (plátano de sombra): tall mottled trunk, big light-green crown
-  {
-    const parts = [paint(at(new THREE.CylinderGeometry(0.2, 0.32, 5.5, 8), 0, 2.75, 0), '#a39a86', 0.25, rnd)];
-    for (let k = 0; k < 3; k++) {
-      const br = new THREE.CylinderGeometry(0.07, 0.12, 2.4, 5);
-      br.rotateZ(0.7); br.rotateY((k / 3) * Math.PI * 2);
-      parts.push(paint(at(br, 0, 5.8, 0), '#9d9480', 0.2, rnd));
-    }
-    for (let k = 0; k < 8; k++) {
-      const a = (k / 8) * Math.PI * 2;
-      parts.push(paint(at(blobL(1.8 + rnd() * 0.5, 1, rnd, 0.8), Math.cos(a) * 2.1, 7.2 + rnd() * 1.4, Math.sin(a) * 2.1), '#5f8a3a', 0.25, rnd, [0.7, 1.15]));
-    }
-    parts.push(paint(at(blobL(2.4, 1, rnd, 0.8), 0, 8.8, 0), '#6a9544', 0.2, rnd, [0.75, 1.2]));
-    T.platano = mergedKeep(parts);
-  }
-  // Orange tree (naranjo): round dense crown with fruit
-  {
-    const parts = [paint(at(new THREE.CylinderGeometry(0.08, 0.12, 1.3, 6), 0, 0.65, 0), '#5b4a39', 0.15, rnd)];
-    parts.push(paint(at(blobL(1.3, 2, rnd, 0.95, 0.12), 0, 2.1, 0), '#2f5b27', 0.2, rnd, [0.7, 1.15]));
-    for (let k = 0; k < 16; k++) {
-      const th = rnd() * Math.PI * 2, ph = rnd() * Math.PI * 0.8 + 0.2;
-      const r = 1.28;
-      parts.push(paint(at(new THREE.IcosahedronGeometry(0.075, 0), Math.cos(th) * Math.sin(ph) * r, 2.1 + Math.cos(ph) * r * 0.95, Math.sin(th) * Math.sin(ph) * r), '#f08a17', 0.1, rnd));
-    }
-    T.naranjo = mergedKeep(parts);
-  }
-  // Stone pine (pino piñonero): umbrella crown on a tall trunk
-  {
-    const tr = new THREE.CylinderGeometry(0.16, 0.3, 7.5, 7);
-    tr.rotateZ(0.06);
-    const parts = [paint(at(tr, 0.2, 3.75, 0), '#6d4a33', 0.2, rnd)];
-    for (let k = 0; k < 7; k++) {
-      const a = (k / 7) * Math.PI * 2;
-      parts.push(paint(at(blobL(1.9, 1, rnd, 0.42, 0.2), Math.cos(a) * 2.2, 8.2 + rnd() * 0.5, Math.sin(a) * 2.2), '#3d5c2c', 0.2, rnd, [0.6, 1.1]));
-    }
-    parts.push(paint(at(blobL(2.3, 1, rnd, 0.45, 0.2), 0, 8.8, 0), '#44652f', 0.2, rnd, [0.7, 1.1]));
-    T.pino = mergedKeep(parts);
-  }
-  // Canary palm (palmera)
-  {
-    const parts = [];
-    const tr = new THREE.CylinderGeometry(0.42, 0.5, 6.5, 10, 8);
-    parts.push(paint(at(tr, 0, 3.25, 0), '#7d6a4d', 0.3, rnd));
-    parts.push(paint(at(new THREE.SphereGeometry(0.62, 10, 6), 0, 6.6, 0), '#6e6a3a', 0.2, rnd));
-    for (let k = 0; k < 18; k++) {
-      const fr = new THREE.PlaneGeometry(0.7, 4.2, 1, 4);
-      const p = fr.attributes.position;
-      for (let i = 0; i < p.count; i++) {
-        const y = p.getY(i) + 2.1; // 0..4.2
-        const t = y / 4.2;
-        p.setX(i, p.getX(i) * (1 - t * 0.85));
-        p.setZ(i, -t * t * 1.6); // droop
-        p.setY(i, y);
-      }
-      fr.rotateX(-Math.PI / 2 + 0.55 + (k % 3) * 0.18);
-      fr.rotateY((k / 18) * Math.PI * 2);
-      parts.push(paint(at(fr, 0, 6.8, 0), '#4f7a2e', 0.25, rnd));
-    }
-    T.palmera = merged(parts);
-  }
-  // Cypress (ciprés)
-  {
-    const parts = [paint(at(new THREE.CylinderGeometry(0.1, 0.15, 0.8, 5), 0, 0.4, 0), '#4a3b2e', 0.1, rnd)];
-    const c = new THREE.ConeGeometry(0.9, 8.5, 8, 4);
-    const p = c.attributes.position;
-    for (let i = 0; i < p.count; i++) { const k = 1 + (rnd() - 0.5) * 0.18; p.setX(i, p.getX(i) * k); p.setZ(i, p.getZ(i) * k); }
-    c.computeVertexNormals();
-    parts.push(paint(at(c, 0, 4.9, 0), '#2e4b2a', 0.2, rnd, [0.7, 1.1]));
-    T.cipres = mergedKeep(parts);
-  }
-  // Eucalyptus
-  {
-    const tr = new THREE.CylinderGeometry(0.18, 0.32, 10, 7);
-    const parts = [paint(at(tr, 0, 5, 0), '#c8bfa9', 0.25, rnd)];
-    for (let k = 0; k < 6; k++) {
-      const a = (k / 6) * Math.PI * 2;
-      parts.push(paint(at(blobL(1.5, 1, rnd, 1.3, 0.35), Math.cos(a) * 1.4, 9 + rnd() * 3, Math.sin(a) * 1.4), '#6f8660', 0.25, rnd, [0.75, 1.1]));
-    }
-    T.eucalipto = mergedKeep(parts);
-  }
-  // Vine row segment (viñedo), 4 m long low hedge on wires
-  {
-    const parts = [];
-    for (let k = 0; k < 4; k++) {
-      const b = blob(0.62, 0, rnd, 0.8, 0.3);
-      b.scale(1.5, 1, 1);
-      parts.push(paint(at(b, -2.25 + k * 1.5, 0.75, 0), '#5e7f33', 0.3, rnd, [0.7, 1.1]));
-    }
-    parts.push(paint(at(new THREE.BoxGeometry(0.06, 1.1, 0.06), -3, 0.55, 0), '#6b5a45', 0, rnd));
-    T.vina = mergedKeep(parts);
-  }
-  // Reeds (cañas) clump
-  {
-    const parts = [];
-    for (let k = 0; k < 9; k++) {
-      const c = new THREE.CylinderGeometry(0.01, 0.03, 2.6 + rnd(), 3);
-      c.rotateZ((rnd() - 0.5) * 0.4); c.rotateX((rnd() - 0.5) * 0.4);
-      parts.push(paint(at(c, (rnd() - 0.5) * 0.8, 1.4, (rnd() - 0.5) * 0.8), '#9c9a5a', 0.3, rnd));
-    }
-    T.canas = merged(parts);
-  }
-  // Bush (adelfa / seto)
-  {
-    const parts = [];
-    for (let k = 0; k < 3; k++) parts.push(paint(at(blobL(0.7, 1, rnd, 0.8), (k - 1) * 0.6, 0.6, 0), '#3f6a2e', 0.25, rnd, [0.7, 1.1]));
-    for (let k = 0; k < 8; k++) parts.push(paint(at(new THREE.IcosahedronGeometry(0.08, 0), (rnd() - 0.5) * 1.6, 0.6 + rnd() * 0.5, (rnd() - 0.5) * 0.9), rnd() < 0.5 ? '#e05a8a' : '#ffffff', 0.1, rnd));
-    T.arbusto = mergedKeep(parts);
-  }
-  for (const k in T) T[k].computeBoundingSphere();
-  return T;
 }
 
 // ---------------------------------------------------------------- street furniture
