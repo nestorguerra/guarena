@@ -735,7 +735,7 @@ export class GameAudio {
     this._pending = { skid: 0, off: 0, wind: 0 };
     this._beds = null;
     this._paused = false;
-    this._amb = { hour: 12, town: 0.5 };
+    this._amb = { hour: 12, town: 0.5, indoor: 0 };
     this._church = null;
     this._bellQ = [];
     this._radioOn = false;
@@ -1042,6 +1042,7 @@ export class GameAudio {
     if (!o) return;
     if (o.hour !== undefined) this._amb.hour = num(o.hour, this._amb.hour);
     if (o.town !== undefined) this._amb.town = clamp(num(o.town, this._amb.town), 0, 1);
+    if (o.indoor !== undefined) this._amb.indoor = clamp(num(o.indoor, 0), 0, 1);
   }
   setChurchPos(x, z) { this._church = { x: num(x), z: num(z) }; }
 
@@ -1342,6 +1343,29 @@ const SFX = {
   },
   crash_small(A, v, t, p) { crash(A, v, t, p, 0.55, false); },
   crash_big(A, v, t, p) { crash(A, v, t, p, 1, true); },
+  church_door(A, v, t, p) { // a great church door on its iron hinges: the latch lifts, a long low groan, the wood
+    chain(nz(A, v, t, 0.05), v.k.filter('bandpass', 2100 * p, 4), eg(v, t, 0.5, 0.001, 0.04), v.out);
+    chain(tone(v, 'triangle', 820 * p, t + 0.02, 0.15), eg(v, t + 0.02, 0.1, 0.001, 0.12), v.out);
+    const o = tone(v, 'sawtooth', 70 * p, t + 0.25, 2.4);
+    for (let i = 0; i < 26; i++) o.frequency.setValueAtTime((50 + Math.random() * 40) * p, t + 0.25 + i * 0.085);
+    chain(o, v.k.filter('bandpass', 430 * p, 5), eg(v, t + 0.25, 0.26, 0.45, 1.8), v.out);
+    chain(nz(A, v, t + 0.25, 2.2, 'brown'), v.k.filter('bandpass', 260 * p, 2), eg(v, t + 0.25, 0.22, 0.5, 1.5), v.out);
+  },
+  church_shut(A, v, t, p) { // … and its boom as it closes, round the stone; the iron latch drops
+    const o = tone(v, 'sine', 58 * p, t, 0.9);
+    sweep(o.frequency, t, 58 * p, 30 * p, 0.45);
+    chain(o, eg(v, t, 1.3, 0.003, 0.6), v.out);
+    chain(nz(A, v, t, 0.5, 'brown'), v.k.filter('lowpass', 420 * p), eg(v, t, 1.2, 0.002, 0.3), v.out);
+    chain(nz(A, v, t + 0.01, 0.1), v.k.filter('bandpass', 1500 * p, 2), eg(v, t + 0.01, 0.4, 0.001, 0.06), v.out);
+    chain(nz(A, v, t + 0.14, 0.05), v.k.filter('bandpass', 2600 * p, 6), eg(v, t + 0.14, 0.35, 0.001, 0.035), v.out);
+    chain(tone(v, 'triangle', 1180 * p, t + 0.14, 0.25), eg(v, t + 0.14, 0.07, 0.001, 0.2), v.out);
+  },
+  cancel_flap(A, v, t, p) { // the padded swing leaves of the lobby: a soft leather thump, and a smaller one
+    for (const [dt, a] of [[0, 1], [0.3, 0.4]]) {
+      chain(nz(A, v, t + dt, 0.12, 'brown'), v.k.filter('lowpass', 380 * p), eg(v, t + dt, 0.7 * a, 0.003, 0.08), v.out);
+      chain(tone(v, 'sine', 110 * p, t + dt, 0.15), eg(v, t + dt, 0.3 * a, 0.002, 0.09), v.out);
+    }
+  },
   door_open(A, v, t, p) {
     chain(nz(A, v, t, 0.03), v.k.filter('bandpass', 2600 * p, 2), eg(v, t, 0.5, 0.001, 0.02), v.out);
     chain(nz(A, v, t + 0.06, 0.1), v.k.filter('bandpass', 900 * p, 1.5), eg(v, t + 0.06, 0.6, 0.002, 0.06), v.out);
@@ -1553,7 +1577,7 @@ const SFX_META = {
   shot_pistol: { ref: 18, max: 700, rev: 0.4 }, shot_smg: { ref: 16, max: 600, rev: 0.35, vol: 0.9 }, shot_shotgun: { ref: 22, max: 800, rev: 0.45 },
   reload: { ref: 3, max: 30, vol: 0.7 }, empty: { ref: 3, max: 25, vol: 0.7 }, bat_swing: { ref: 4, max: 50, vol: 0.7 }, bat_hit: { ref: 6, max: 90 },
   bullet_flesh: { ref: 5, max: 60, vol: 0.8 }, bullet_metal: { ref: 6, max: 120, rev: 0.05, vol: 0.8 }, ricochet: { ref: 6, max: 120, rev: 0.1, vol: 0.7 },
-  heartbeat: { vol: 0.9 }, door_slam: { ref: 6, max: 90, rev: 0.35 }, knock: { ref: 5, max: 60, rev: 0.25 }, flashlight: { vol: 0.6 },
+  heartbeat: { vol: 0.9 }, door_slam: { ref: 6, max: 90, rev: 0.35 }, church_door: { ref: 6, max: 70, rev: 0.4, vol: 0.8 }, church_shut: { ref: 8, max: 110, rev: 0.6 }, cancel_flap: { ref: 4, max: 40, rev: 0.5, vol: 0.7 }, knock: { ref: 5, max: 60, rev: 0.25 }, flashlight: { vol: 0.6 },
   creak: { ref: 4, max: 40, rev: 0.45 }, clock: { ref: 2, max: 16, vol: 0.55, rev: 0.25 }, wind: { vol: 0.45, rev: 0.3 }, whisper: { ref: 2, max: 14, rev: 0.4 }, thud: { ref: 6, max: 60, rev: 0.4 },
   radio: { vol: 0.45 }, lid: { ref: 5, max: 60, vol: 0.8 }, bark: { ref: 5, max: 70, vol: 0.8, rev: 0.1 }, piano: { rev: 0.25, vol: 0.9 }, guitar: { rev: 0.2, vol: 0.8 },
   pickup: { vol: 0.8 }, money: { vol: 0.8 }, checkpoint: { vol: 0.9 }, phone_ring: { vol: 0.7 }, text_msg: { vol: 0.7 },
@@ -1580,11 +1604,13 @@ class Ambient {
     if (!this.k) this._build(t);
     const day = smooth(6, 7.5, h) * (1 - smooth(20.5, 22, h)), night = 1 - day;
     const act = clamp(0.12 + 0.55 * day + 0.45 * bump(h, 20, 1.6) + 0.2 * bump(h, 12, 2.5), 0, 1); // evening paseo peak
-    glide(this.murmur.gain, town * act * 0.55, t, 0.8);
-    glide(this.traffic.gain, (0.25 + 0.45 * town) * act * 0.5, t, 0.8);
-    glide(this.crickets.gain, night * (0.35 + 0.65 * (1 - town)) * 0.7, t, 1.5);
-    glide(this.cicadas.gain, day * bump(h, 15.5, 2.3) * (1 - 0.85 * town) * 0.35, t, 1.5);
-    if (A._paused) return;
+    // indoors the street is muffled (in a house) or gone (in the church: only its own silence)
+    const ind = num(A._amb.indoor, 0), out = 1 - ind;
+    glide(this.murmur.gain, town * act * 0.55 * out, t, 0.8);
+    glide(this.traffic.gain, (0.25 + 0.45 * town) * act * 0.5 * out, t, 0.8);
+    glide(this.crickets.gain, night * (0.35 + 0.65 * (1 - town)) * 0.7 * out, t, 1.5);
+    glide(this.cicadas.gain, day * bump(h, 15.5, 2.3) * (1 - 0.85 * town) * 0.35 * out, t, 1.5);
+    if (A._paused || ind > 0.5) return; // (no birds, swifts, dogs or owls inside)
     const ev = this.timers;
     const birds = day * (0.5 + 0.5 * (1 - town)) * (1 + 1.5 * bump(h, 7.8, 1)); // dawn chorus
     const swifts = smooth(17.5, 18.5, h) * (1 - smooth(20.8, 21.6, h)) * (0.4 + 0.6 * town);

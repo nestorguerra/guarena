@@ -16,7 +16,12 @@ export const VIEWS = [
   ['abside', [16, 1.8, -3], [24, 15, 1.5], 70],
   ['oculo', [-12, 8, 0], [-26.5, 12.5, 0], 50],
   ['sol', [2, 1.7, 5], [-8, 0.5, -6], 75],
-];
+  ['virgen', [19.5, 3.4, 0.4], [25, 7.6, 0], 42],
+  ['predela', [21.5, 2.2, 1.2], [25, 2.6, 0], 60],
+  ['cristo', [-5.2, 1.7, -5.5], [-5.2, 3.2, -11], 55],
+  ['inmac', [14.2, 1.7, 5.5], [14.2, 3.2, 11], 55],
+  ['dolor', [-14.75, 1.7, 5.5], [-14.75, 3.1, 11], 55],
+]; // (eyes and targets in church coordinates)
 export async function shoot(tag = '', { hours = [10.5], W = 720, H = 900, only = null } = {}) {
   const g = G(), I = g.interiors;
   if (!g.interior || !g.interior.church) {

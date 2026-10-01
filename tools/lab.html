@@ -1,0 +1,19 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>lab</title>
+<!-- Dev-only: a bare page with the import map, to try modules (paintings, statues…) without the game:
+     open /tools/lab.html, then import what you need from the console -->
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+<body style="margin:0;background:#222">
+<script type="module">
+// contact sheet of canvases → /__snap?name=<name>
+window.sheet = async (name, canvases, cols = 6, scale = 1) => {
+  const w = Math.max(...canvases.map((c) => c.width)) * scale, h = Math.max(...canvases.map((c) => c.height)) * scale;
+  const rows = Math.ceil(canvases.length / cols), s = document.createElement('canvas'); s.width = w * cols; s.height = h * rows;
+  const x = s.getContext('2d'); x.fillStyle = '#333'; x.fillRect(0, 0, s.width, s.height);
+  canvases.forEach((c, i) => x.drawImage(c, (i % cols) * w, Math.floor(i / cols) * h, c.width * scale, c.height * scale));
+  await fetch('/__snap?name=' + name, { method: 'POST', body: s.toDataURL('image/jpeg', 0.9) });
+  return [s.width, s.height];
+};
+</script>
+</body>

@@ -13,6 +13,11 @@ import { INTERIOR_ORIGIN, HouseBuilder, boxGeo, planeGeo, std, texMat } from './
 import { mulberry32, clamp, lerp } from './util.js';
 import { STYLE } from './style.js';
 import { toonifyCanvas } from './toon.js';
+import { ChurchDoor, cancelLobby, doorwayWall, revealGeo } from './churchdoors.js';
+import { buildRetablo } from './retablo.js';
+import { statue as carve } from './statues.js';
+import { calTexture, floorTexture, plinthTexture, drumTexture, pewTexture, carpetTexture, tombTexture } from './churchtex.js';
+import { paintingTexture as oilPainting } from './paintings.js';
 
 // ---------------------------------------------------------------- the measures (metres; x towards the altar = east,
 // z south = the Epistle side, y up; the inside faces of the walls)
@@ -31,7 +36,10 @@ const XP = 13.6;              // the first step
 const WIN = { w: 2.1, y0: 10.9, y1: 15.2 };
 export const CHURCH = { HW, X0, XC, BAY, NB, XA, AR, S, CD, CHY, P, XP };
 
-// ---------------------------------------------------------------- painted textures (canvas)
+// ---------------------------------------------------------------- painted textures (canvas): made once, kept (each visit
+// builds the church again; its pictures need not be painted again — nor fill the GPU)
+const MEMO = new Map();
+const memo = (key, fn) => { if (!MEMO.has(key)) MEMO.set(key, fn()); return MEMO.get(key); };
 function canvasTex(c, { repeat = false, toon = true } = {}) {
   if (STYLE.anime && toon && c.width === c.height) toonifyCanvas(c, { levels: 6, ink: 0.3 });
   const t = new THREE.CanvasTexture(c);
@@ -40,123 +48,102 @@ function canvasTex(c, { repeat = false, toon = true } = {}) {
   if (repeat) t.wrapS = t.wrapT = THREE.RepeatWrapping;
   return t;
 }
-// carved, gilded wood: acanthus scrolls, rosettes and gadroons in shadowed relief
-function goldTexture(seed = 3) {
-  const S2 = 256, c = document.createElement('canvas'); c.width = c.height = S2;
+// carved, gilded wood: acanthus scrolls round rosettes, the leaves lit on their upper edges and shadowed under, the red
+// bole showing in the hollows and where the gold has worn off with the years
+function goldTexture_(seed = 3) {
+  const S2 = 512, c = document.createElement('canvas'); c.width = c.height = S2;
   const x = c.getContext('2d'), r = mulberry32(seed);
-  const g = x.createLinearGradient(0, 0, S2, S2); g.addColorStop(0, '#c99a3c'); g.addColorStop(0.5, '#e6bf5f'); g.addColorStop(1, '#b8862e');
+  // the ground between the carving: gold too, only darker in the hollows (the red bole shows only where it is worn)
+  const g = x.createLinearGradient(0, 0, S2, S2); g.addColorStop(0, '#b48434'); g.addColorStop(0.5, '#c8963c'); g.addColorStop(1, '#ad7c2e');
   x.fillStyle = g; x.fillRect(0, 0, S2, S2);
-  x.lineCap = 'round';
+  x.lineCap = 'round'; x.lineJoin = 'round';
+  // drawn at (px, py) and again wrapped round the edges, so the tile does not show its seams
+  const wrapped = (px, py, R, draw) => { for (const ox of [-S2, 0, S2]) for (const oy of [-S2, 0, S2]) if (px + ox > -R && px + ox < S2 + R && py + oy > -R && py + oy < S2 + R) draw(px + ox, py + oy); };
+  const leaf = (px, py, a, L, w) => {
+    const ca = Math.cos(a), sa = Math.sin(a), nx = -sa, ny = ca;
+    const pts = []; for (let i = 0; i <= 10; i++) { const t = i / 10, bend = Math.sin(t * Math.PI) * w; pts.push([px + ca * L * t + nx * bend, py + sa * L * t + ny * bend]); }
+    for (let i = 10; i >= 0; i--) { const t = i / 10, bend = -Math.sin(t * Math.PI) * w * 0.55; pts.push([px + ca * L * t + nx * bend, py + sa * L * t + ny * bend]); }
+    x.beginPath(); pts.forEach(([u, v], i) => (i ? x.lineTo(u, v) : x.moveTo(u, v))); x.closePath();
+    x.fillStyle = 'rgba(92,52,18,0.38)'; x.save(); x.translate(2.5, 2.5); x.fill(); x.restore();
+    const lg = x.createLinearGradient(px - nx * w, py - ny * w, px + nx * w, py + ny * w); lg.addColorStop(0, '#fbe2a0'); lg.addColorStop(0.5, '#deae52'); lg.addColorStop(1, '#b07c2c');
+    x.fillStyle = lg; x.fill();
+    x.strokeStyle = 'rgba(110,64,20,0.45)'; x.lineWidth = 1; x.beginPath(); x.moveTo(px, py); x.lineTo(px + ca * L * 0.9, py + sa * L * 0.9); x.stroke();
+  };
+  // scrolls of acanthus scattered loosely (no grid), some turning one way, some the other, rosettes here and there
   for (let i = 0; i < 26; i++) {
-    const cx = r() * S2, cy = r() * S2, R = 14 + r() * 26, a0 = r() * 6.28;
-    x.strokeStyle = 'rgba(92,58,14,0.55)'; x.lineWidth = 3 + r() * 3;
-    x.beginPath(); for (let t = 0; t < 1; t += 0.04) { const a = a0 + t * 7.5, rr = R * (1 - t * 0.85); x.lineTo(cx + Math.cos(a) * rr, cy + Math.sin(a) * rr); } x.stroke();
-    x.strokeStyle = 'rgba(255,236,170,0.6)'; x.lineWidth = 1.5;
-    x.beginPath(); for (let t = 0; t < 1; t += 0.04) { const a = a0 + t * 7.5, rr = R * (1 - t * 0.85) - 2; x.lineTo(cx + Math.cos(a) * rr, cy + Math.sin(a) * rr); } x.stroke();
+    const cx = r() * S2, cy = r() * S2, dir = r() < 0.5 ? 1 : -1, R0 = 26 + r() * 30, a0 = r() * 6.283, n = 5 + Math.floor(r() * 4);
+    wrapped(cx, cy, R0 + 40, (px, py) => { for (let k = 0; k < n; k++) { const t = k / n, a = a0 + dir * t * 4, rr = R0 * (1 - t * 0.65); leaf(px + Math.cos(a) * rr, py + Math.sin(a) * rr, a + dir * 1.9, 18 + r() * 14, 5 + r() * 4); } });
   }
-  for (let i = 0; i < 10; i++) { // rosettes
-    const cx = r() * S2, cy = r() * S2;
-    for (let k = 0; k < 8; k++) { const a = (k / 8) * 6.28; x.fillStyle = 'rgba(110,70,18,0.5)'; x.beginPath(); x.ellipse(cx + Math.cos(a) * 6, cy + Math.sin(a) * 6, 5, 2.5, a, 0, 6.28); x.fill(); }
-    x.fillStyle = '#f6dc8a'; x.beginPath(); x.arc(cx, cy, 3.5, 0, 6.28); x.fill();
+  for (let i = 0; i < 12; i++) {
+    const cx = r() * S2, cy = r() * S2, rr = 5 + r() * 4;
+    wrapped(cx, cy, 20, (px, py) => { for (let k = 0; k < 8; k++) { const a = (k / 8) * 6.283; x.fillStyle = 'rgba(96,54,18,0.35)'; x.beginPath(); x.ellipse(px + Math.cos(a) * rr + 1.5, py + Math.sin(a) * rr + 1.5, rr * 0.85, rr * 0.42, a, 0, 6.283); x.fill(); x.fillStyle = '#e6b45a'; x.beginPath(); x.ellipse(px + Math.cos(a) * rr, py + Math.sin(a) * rr, rr * 0.85, rr * 0.42, a, 0, 6.283); x.fill(); } const rg = x.createRadialGradient(px - 1.5, py - 1.5, 1, px, py, rr * 0.7); rg.addColorStop(0, '#fff3c4'); rg.addColorStop(1, '#c08a30'); x.fillStyle = rg; x.beginPath(); x.arc(px, py, rr * 0.65, 0, 6.283); x.fill(); });
   }
-  return canvasTex(c, { repeat: true });
-}
-// whitewash (cal): almost white, the faintest unevenness of the brush
-function calTexture() {
-  const S2 = 256, c = document.createElement('canvas'); c.width = c.height = S2;
-  const x = c.getContext('2d'), r = mulberry32(5);
-  x.fillStyle = '#f6f2ea'; x.fillRect(0, 0, S2, S2);
-  for (let i = 0; i < 260; i++) { x.fillStyle = `rgba(${r() < 0.5 ? '255,255,250' : '226,218,204'},${0.08 + r() * 0.12})`; x.beginPath(); x.ellipse(r() * S2, r() * S2, 8 + r() * 30, 3 + r() * 10, r() * 3, 0, 6.28); x.fill(); }
+  // the years: the gold rubbed thin on the high points, the bole showing through in small patches
+  for (let i = 0; i < 90; i++) { x.fillStyle = `rgba(${r() < 0.5 ? '140,66,26' : '100,56,22'},${0.12 + r() * 0.2})`; x.beginPath(); x.ellipse(r() * S2, r() * S2, 1 + r() * 3.5, 1 + r() * 2, r() * 3, 0, 6.283); x.fill(); }
   return canvasTex(c, { repeat: true, toon: false });
 }
-// the floor: big squares of pale and grey stone set diagonally, a darker band round them
-function floorTexture() {
-  const S2 = 512, c = document.createElement('canvas'); c.width = c.height = S2;
-  const x = c.getContext('2d'), r = mulberry32(17);
-  const n = 4, q = S2 / n;
-  for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
-    const pale = (i + j) % 2 === 0;
-    const v = pale ? 222 + r() * 14 : 150 + r() * 16;
-    x.fillStyle = `rgb(${v},${v - 6},${v - 16})`; x.fillRect(i * q, j * q, q, q);
-    for (let k = 0; k < 7; k++) { // veins
-      x.strokeStyle = pale ? 'rgba(150,140,125,0.22)' : 'rgba(90,86,80,0.3)'; x.lineWidth = 1 + r() * 1.5;
-      x.beginPath(); let px = i * q + r() * q, py = j * q + r() * q; x.moveTo(px, py);
-      for (let s = 0; s < 6; s++) { px += (r() - 0.5) * 40; py += (r() - 0.3) * 30; x.lineTo(px, py); } x.stroke();
-    }
-  }
-  x.strokeStyle = 'rgba(70,64,56,0.75)'; x.lineWidth = 3;
-  for (let i = 0; i <= n; i++) { x.beginPath(); x.moveTo(i * q, 0); x.lineTo(i * q, S2); x.stroke(); x.beginPath(); x.moveTo(0, i * q); x.lineTo(S2, i * q); x.stroke(); }
-  return canvasTex(c, { repeat: true });
+const goldTexture = (seed = 3) => memo('gold' + seed, () => goldTexture_(seed));
+const cofferTexture = () => memo('coffer', cofferTexture_);
+const viaCrucisTexture = (n) => memo('via' + n, () => viaCrucisTexture_(n));
+const plaqueTexture = () => memo('plaque', plaqueTexture_);
+// what the gold reflects: the warm church round it (whitewash lit by candles above, dark wood below, a bright window)
+let _goldEnv = null;
+function goldEnv() {
+  if (_goldEnv) return _goldEnv;
+  const c = document.createElement('canvas'); c.width = 256; c.height = 128;
+  const x = c.getContext('2d');
+  const g = x.createLinearGradient(0, 0, 0, 128); g.addColorStop(0, '#fff4dc'); g.addColorStop(0.4, '#e8cfa0'); g.addColorStop(0.55, '#9a7448'); g.addColorStop(1, '#2a1a0e');
+  x.fillStyle = g; x.fillRect(0, 0, 256, 128);
+  for (const [u, v, rr, a] of [[40, 30, 26, 0.9], [170, 36, 20, 0.7], [110, 50, 14, 0.8], [220, 60, 10, 0.6]]) { const rg = x.createRadialGradient(u, v, 1, u, v, rr); rg.addColorStop(0, `rgba(255,252,236,${a})`); rg.addColorStop(1, 'rgba(255,240,200,0)'); x.fillStyle = rg; x.fillRect(0, 0, 256, 128); }
+  const t = new THREE.CanvasTexture(c); t.mapping = THREE.EquirectangularReflectionMapping; t.colorSpace = THREE.SRGBColorSpace;
+  return (_goldEnv = t);
 }
 // the coffers of the half dome: a sunk square panel with a gilded rosette
-function cofferTexture() {
-  const S2 = 128, c = document.createElement('canvas'); c.width = c.height = S2;
+function cofferTexture_() {
+  // a coffer of the half dome as the photographs show them: a sunk panel framed in stepped mouldings, painted blue-grey,
+  // a cherub's head in grisaille in it, little gilded rosettes at its corners
+  const S2 = 256, c = document.createElement('canvas'); c.width = c.height = S2;
   const x = c.getContext('2d');
-  x.fillStyle = '#d8cfbd'; x.fillRect(0, 0, S2, S2);
-  x.fillStyle = '#b9ad98'; x.fillRect(10, 10, S2 - 20, S2 - 20);
-  x.fillStyle = '#a49884'; x.fillRect(22, 22, S2 - 44, S2 - 44);
-  x.fillStyle = '#e8d8b0'; x.fillRect(10, 10, S2 - 20, 4); x.fillRect(10, 10, 4, S2 - 20);
-  for (let k = 0; k < 8; k++) { const a = (k / 8) * 6.28; x.fillStyle = '#c99a3c'; x.beginPath(); x.ellipse(64 + Math.cos(a) * 14, 64 + Math.sin(a) * 14, 11, 5, a, 0, 6.28); x.fill(); }
-  x.fillStyle = '#f2d27a'; x.beginPath(); x.arc(64, 64, 9, 0, 6.28); x.fill();
+  x.fillStyle = '#d6cdbb'; x.fillRect(0, 0, S2, S2);
+  for (const [o, top, bot] of [[10, '#ece4d2', '#9e9480'], [24, '#d8d0bc', '#8a826e'], [36, '#c4bcaa', '#7a7262']]) { x.fillStyle = bot; x.fillRect(o, o, S2 - o * 2, S2 - o * 2); x.fillStyle = top; x.beginPath(); x.moveTo(o, o); x.lineTo(S2 - o, o); x.lineTo(S2 - o - 8, o + 8); x.lineTo(o + 8, o + 8); x.lineTo(o + 8, S2 - o - 8); x.lineTo(o, S2 - o); x.closePath(); x.fill(); }
+  const g = x.createRadialGradient(S2 / 2, S2 * 0.45, 10, S2 / 2, S2 / 2, S2 * 0.4); g.addColorStop(0, '#9fb0c2'); g.addColorStop(1, '#6a7a8e');
+  x.fillStyle = g; x.fillRect(46, 46, S2 - 92, S2 - 92);
+  // the cherub: a child's head between wings, painted in greys with white lights
+  for (const sx of [-1, 1]) { x.fillStyle = '#d8dde2'; x.beginPath(); x.moveTo(S2 / 2 + sx * 10, S2 / 2); x.quadraticCurveTo(S2 / 2 + sx * 60, S2 / 2 - 40, S2 / 2 + sx * 70, S2 / 2 - 6); x.quadraticCurveTo(S2 / 2 + sx * 50, S2 / 2 + 18, S2 / 2 + sx * 12, S2 / 2 + 14); x.closePath(); x.fill(); x.strokeStyle = 'rgba(80,90,104,0.6)'; x.lineWidth = 1.5; for (let i = 0; i < 4; i++) { x.beginPath(); x.moveTo(S2 / 2 + sx * 16, S2 / 2 + 6); x.lineTo(S2 / 2 + sx * (40 + i * 8), S2 / 2 - 26 + i * 8); x.stroke(); } }
+  const hg = x.createRadialGradient(S2 / 2 - 5, S2 / 2 - 8, 2, S2 / 2, S2 / 2, 24); hg.addColorStop(0, '#f4f2ee'); hg.addColorStop(1, '#a8b0ba');
+  x.fillStyle = hg; x.beginPath(); x.arc(S2 / 2, S2 / 2, 22, 0, 6.283); x.fill();
+  x.fillStyle = 'rgba(60,66,78,0.7)'; for (const sx of [-1, 1]) { x.beginPath(); x.arc(S2 / 2 + sx * 8, S2 / 2 - 2, 2.2, 0, 6.283); x.fill(); } x.fillRect(S2 / 2 - 4, S2 / 2 + 10, 8, 2);
+  x.fillStyle = '#c2c8ce'; x.beginPath(); x.ellipse(S2 / 2, S2 / 2 - 18, 18, 8, 0, Math.PI, 0); x.fill(); // the curls
+  for (const [px, py] of [[30, 30], [S2 - 30, 30], [30, S2 - 30], [S2 - 30, S2 - 30]]) { for (let k = 0; k < 6; k++) { const a = (k / 6) * 6.283; x.fillStyle = '#c8962e'; x.beginPath(); x.ellipse(px + Math.cos(a) * 6, py + Math.sin(a) * 6, 6, 3, a, 0, 6.283); x.fill(); } x.fillStyle = '#f2d27a'; x.beginPath(); x.arc(px, py, 4, 0, 6.283); x.fill(); }
   return canvasTex(c, { repeat: true });
 }
-// a painting: a figure (an apostle, a saint, the Virgin) in a dark warm ground, the way the old retablo panels are
-const ROBES = { pedro: ['#2f4a7a', '#d8a23c'], pablo: ['#7a2420', '#3c6a3a'], juan: ['#2f6a3a', '#b8302a'], santiago: ['#6a4a2a', '#c8a050'], andres: ['#3a5a7a', '#a86030'], mateo: ['#5a3a6a', '#c88a3a'],
-  asuncion: ['#f2efe6', '#2e4f9a'], bautismo: ['#c8a070', '#4a6a9a'], domingo: ['#f2efe6', '#1e1e22'], catalina: ['#f2efe6', '#1e1e22'] };
-function paintingTexture(kind, seed = 1) {
-  const W2 = 256, H2 = 384, c = document.createElement('canvas'); c.width = W2; c.height = H2;
-  const x = c.getContext('2d'), r = mulberry32(seed);
-  const sky = kind === 'asuncion' || kind === 'bautismo';
-  const bg = x.createRadialGradient(W2 / 2, H2 * 0.35, 20, W2 / 2, H2 * 0.4, H2 * 0.75);
-  if (sky) { bg.addColorStop(0, '#ffe9b0'); bg.addColorStop(0.45, '#d9a85a'); bg.addColorStop(1, '#5a3a22'); }
-  else { bg.addColorStop(0, '#b08a5a'); bg.addColorStop(0.6, '#5e4228'); bg.addColorStop(1, '#2a1a0e'); }
-  x.fillStyle = bg; x.fillRect(0, 0, W2, H2);
-  if (sky) for (let i = 0; i < 14; i++) { x.fillStyle = `rgba(255,248,230,${0.25 + r() * 0.35})`; x.beginPath(); x.arc(r() * W2, H2 * (0.55 + r() * 0.45), 18 + r() * 26, 0, 6.28); x.fill(); } // clouds
-  else { x.fillStyle = 'rgba(40,30,20,0.6)'; x.fillRect(0, H2 * 0.8, W2, H2 * 0.2); }
-  const [robe, mantle] = ROBES[kind] || ROBES.pedro;
-  const cx = W2 / 2 + (r() - 0.5) * 20, top = H2 * 0.16;
-  // halo
-  const hg = x.createRadialGradient(cx, top + 26, 4, cx, top + 26, 44); hg.addColorStop(0, 'rgba(255,240,180,0.95)'); hg.addColorStop(1, 'rgba(255,220,120,0)');
-  x.fillStyle = hg; x.beginPath(); x.arc(cx, top + 26, 44, 0, 6.28); x.fill();
-  // robe and mantle
-  x.fillStyle = robe; x.beginPath(); x.moveTo(cx - 26, top + 60); x.quadraticCurveTo(cx - 54, H2 * 0.62, cx - 62, H2 * 0.93); x.lineTo(cx + 62, H2 * 0.93); x.quadraticCurveTo(cx + 54, H2 * 0.62, cx + 26, top + 60); x.closePath(); x.fill();
-  x.fillStyle = mantle; x.beginPath(); x.moveTo(cx - 30, top + 58); x.quadraticCurveTo(cx - 70, H2 * 0.5, cx - 50, H2 * 0.9); x.quadraticCurveTo(cx, H2 * 0.6, cx + 30, top + 64); x.closePath(); x.fill();
-  x.strokeStyle = 'rgba(0,0,0,0.25)'; x.lineWidth = 2;
-  for (let k = 0; k < 6; k++) { x.beginPath(); x.moveTo(cx - 30 + k * 12, H2 * 0.45); x.quadraticCurveTo(cx - 34 + k * 13, H2 * 0.7, cx - 40 + k * 15, H2 * 0.92); x.stroke(); } // folds
-  // head, hands
-  x.fillStyle = '#e8c09a'; x.beginPath(); x.ellipse(cx, top + 30, 15, 19, 0, 0, 6.28); x.fill();
-  x.fillStyle = kind === 'asuncion' || kind === 'catalina' || kind === 'domingo' ? (kind === 'asuncion' ? '#2e4f9a' : '#1e1e22') : '#5a4030';
-  x.beginPath(); x.ellipse(cx, top + 20, 17, 13, 0, Math.PI, 0); x.fill(); // hair / veil
-  if (kind !== 'asuncion' && kind !== 'catalina' && kind !== 'domingo' && kind !== 'juan') { x.fillStyle = '#6a5040'; x.beginPath(); x.ellipse(cx, top + 42, 12, 10, 0, 0, Math.PI); x.fill(); } // beard
-  x.fillStyle = '#e8c09a'; x.beginPath(); x.arc(cx - 20, top + 112, 7, 0, 6.28); x.arc(cx + 22, top + 108, 7, 0, 6.28); x.fill();
-  // attribute: keys, sword, book, shell, cross, lily
-  x.strokeStyle = '#e8c860'; x.fillStyle = '#e8c860'; x.lineWidth = 4;
-  if (kind === 'pedro') { x.beginPath(); x.moveTo(cx + 22, top + 100); x.lineTo(cx + 40, top + 160); x.stroke(); x.beginPath(); x.arc(cx + 22, top + 96, 7, 0, 6.28); x.stroke(); }
-  else if (kind === 'pablo') { x.strokeStyle = '#c8ccd2'; x.beginPath(); x.moveTo(cx + 22, top + 100); x.lineTo(cx + 24, top + 230); x.stroke(); }
-  else if (kind === 'santiago') { x.strokeStyle = '#8a6a3a'; x.beginPath(); x.moveTo(cx + 24, top + 60); x.lineTo(cx + 26, H2 * 0.9); x.stroke(); x.fillStyle = '#f2ead8'; x.beginPath(); x.arc(cx - 6, top + 76, 7, 0, 6.28); x.fill(); }
-  else if (kind === 'andres') { x.strokeStyle = '#8a6a3a'; x.lineWidth = 6; x.beginPath(); x.moveTo(cx - 50, top + 70); x.lineTo(cx + 50, top + 200); x.moveTo(cx + 50, top + 70); x.lineTo(cx - 50, top + 200); x.stroke(); }
-  else if (kind === 'juan' || kind === 'mateo') { x.fillStyle = '#f2ead8'; x.fillRect(cx - 34, top + 98, 26, 32); x.strokeStyle = '#7a2420'; x.lineWidth = 2; x.strokeRect(cx - 34, top + 98, 26, 32); }
-  else if (kind === 'asuncion') { x.fillStyle = '#ffe9a0'; for (let k = 0; k < 12; k++) { const a = -Math.PI + (k / 11) * Math.PI; x.beginPath(); x.arc(cx + Math.cos(a) * 34, top + 28 + Math.sin(a) * 34, 3, 0, 6.28); x.fill(); } // crown of stars
-    for (let k = 0; k < 4; k++) { const ax = k < 2 ? cx - 80 + k * 18 : cx + 62 + (k - 2) * 18, ay = H2 * (0.72 + (k % 2) * 0.08); x.fillStyle = '#f0c8a0'; x.beginPath(); x.arc(ax, ay, 9, 0, 6.28); x.fill(); x.fillStyle = 'rgba(255,250,235,0.8)'; x.beginPath(); x.ellipse(ax - 10, ay - 2, 10, 5, 0.5, 0, 6.28); x.ellipse(ax + 10, ay - 2, 10, 5, -0.5, 0, 6.28); x.fill(); } } // cherubs
-  else if (kind === 'bautismo') { x.fillStyle = 'rgba(120,170,210,0.7)'; x.fillRect(0, H2 * 0.82, W2, H2 * 0.18); x.fillStyle = '#ffffff'; x.beginPath(); x.ellipse(cx, top - 6, 10, 5, 0, 0, 6.28); x.fill(); } // the river and the dove
-  else if (kind === 'domingo') { x.fillStyle = '#f2f0ea'; x.beginPath(); x.moveTo(cx + 30, top + 80); x.lineTo(cx + 34, top + 30); x.lineTo(cx + 38, top + 80); x.fill(); } // a lily
-  else if (kind === 'catalina') { x.strokeStyle = '#b8302a'; x.lineWidth = 3; x.beginPath(); x.arc(cx, top + 22, 20, Math.PI * 1.1, Math.PI * 1.9); x.stroke(); }
-  // varnish: darker at the edges, a faint crackle
-  const vg = x.createRadialGradient(W2 / 2, H2 / 2, H2 * 0.2, W2 / 2, H2 / 2, H2 * 0.7); vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(20,10,0,0.55)');
-  x.fillStyle = vg; x.fillRect(0, 0, W2, H2);
+// the Way of the Cross: fourteen little oil paintings (Christ under the cross on the road, the crowd a dark smudge), the
+// station's number on a plaque under each
+function viaCrucisTexture_(n) {
+  const W2 = 128, H2 = 160, c = document.createElement('canvas'); c.width = W2; c.height = H2;
+  const x = c.getContext('2d'), r = mulberry32(300 + n);
+  const g = x.createLinearGradient(0, 0, 0, H2); g.addColorStop(0, '#3a2c22'); g.addColorStop(0.55, '#7a5a3a'); g.addColorStop(0.62, '#4a3a2a'); g.addColorStop(1, '#2a2018');
+  x.fillStyle = g; x.fillRect(0, 0, W2, H2 - 30);
+  x.fillStyle = 'rgba(30,22,16,0.8)'; for (let i = 0; i < 5; i++) { x.beginPath(); x.ellipse(10 + r() * 108, 86 + r() * 10, 6 + r() * 6, 14 + r() * 8, 0, 0, 6.283); x.fill(); } // the crowd
+  const fall = n === 2 || n === 6 || n === 8, cx = 52 + (n % 3) * 8, gy = fall ? 104 : 98;
+  if (n < 11) { // carrying the cross (or fallen under it)
+    x.strokeStyle = '#4a3020'; x.lineWidth = 6; x.beginPath(); x.moveTo(cx - 22, gy + 8); x.lineTo(cx + 28, gy - (fall ? 30 : 58)); x.stroke(); x.beginPath(); x.moveTo(cx - 4, gy - (fall ? 4 : 38)); x.lineTo(cx + 24, gy - (fall ? 18 : 26)); x.stroke();
+    x.fillStyle = '#8a2a24'; x.beginPath(); fall ? x.ellipse(cx + 6, gy - 6, 18, 8, -0.3, 0, 6.283) : x.ellipse(cx, gy - 22, 8, 22, 0.15, 0, 6.283); x.fill();
+    x.fillStyle = '#e0bc98'; x.beginPath(); x.arc(cx + (fall ? 20 : 4), gy - (fall ? 14 : 46), 5, 0, 6.283); x.fill();
+    x.strokeStyle = 'rgba(255,220,140,0.7)'; x.lineWidth = 1; x.beginPath(); x.arc(cx + (fall ? 20 : 4), gy - (fall ? 14 : 46), 8, 0, 6.283); x.stroke();
+  } else { // on the cross; laid in the tomb
+    x.strokeStyle = '#4a3020'; x.lineWidth = 6; x.beginPath(); x.moveTo(64, 30); x.lineTo(64, 110); x.moveTo(40, 48); x.lineTo(88, 48); x.stroke();
+    if (n < 13) { x.fillStyle = '#e8d6bc'; x.fillRect(61, 48, 6, 36); x.beginPath(); x.arc(64, 44, 5, 0, 6.283); x.fill(); x.fillRect(44, 47, 40, 4); }
+    else { x.fillStyle = '#e8d6bc'; x.fillRect(30, 104, 68, 7); x.fillStyle = '#2a2018'; x.fillRect(24, 110, 80, 14); }
+  }
+  // a little varnish and the dark round the edges
+  const vg = x.createRadialGradient(64, 70, 20, 64, 70, 90); vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(20,10,0,0.55)'); x.fillStyle = vg; x.fillRect(0, 0, W2, H2 - 30);
+  // its plaque
+  x.fillStyle = '#c8a050'; x.fillRect(0, H2 - 30, W2, 30); x.fillStyle = '#3a2410'; x.font = 'bold 20px serif'; x.textAlign = 'center';
+  x.fillText(['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII', 'XIII', 'XIV'][n], W2 / 2, H2 - 9);
   return canvasTex(c, { toon: false });
 }
-// little paintings of the Way of the Cross: a number and a cross
-function viaCrucisTexture(n) {
-  const c = document.createElement('canvas'); c.width = 64; c.height = 80;
-  const x = c.getContext('2d');
-  x.fillStyle = '#3a2a1c'; x.fillRect(0, 0, 64, 80);
-  x.fillStyle = '#d9c9a0'; x.fillRect(6, 6, 52, 68);
-  x.fillStyle = '#5a3a22'; x.fillRect(29, 14, 6, 36); x.fillRect(20, 22, 24, 6);
-  x.fillStyle = '#3a2a1c'; x.font = 'bold 16px serif'; x.textAlign = 'center'; x.fillText(['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII', 'XIII', 'XIV'][n], 32, 68);
-  return canvasTex(c, { toon: false });
-}
-function plaqueTexture() {
+function plaqueTexture_() {
   const c = document.createElement('canvas'); c.width = 256; c.height = 160;
   const x = c.getContext('2d');
   x.fillStyle = '#d8c8a0'; x.fillRect(0, 0, 256, 160);
@@ -240,48 +227,6 @@ function ribAlong(ax, az, bx, bz, xa, xb, s, rT, dome, r = 0.15, n = 16) {
   return tube(pts, r, 6);
 }
 
-// ---------------------------------------------------------------- statues (painted wood: the images of the altars)
-// kind: virgen (the Assumption: white and blue, crown of stars), dolorosa (black mantle, silver halo), jose (staff with
-// lilies, the Child), corazon (the Sacred Heart: red robe, cream mantle), carmen (brown habit, cream mantle), antonio
-// (brown habit, the Child, a book), inmaculada (white and blue on the moon), juan, cristo (crucified)
-function statue(B, kind, x, y, z, ry, h = 1.6, keys) {
-  const k = keys, s = h / 1.6;
-  const cr = Math.cos(ry), sr = Math.sin(ry);
-  const add = (key, g, px, py, pz) => { g.scale(s, s, s); g.rotateY(ry); g.translate(x + (px * cr + pz * sr) * s, y + py * s, z + (-px * sr + pz * cr) * s); B.add(key, g, 0, 0, 0); };
-  if (kind === 'cristo') { // on the cross
-    add(k.darkwood, boxGeo(0.14, 2.6, 0.1), 0, 1.3, -0.08);
-    add(k.darkwood, boxGeo(1.6, 0.13, 0.1), 0, 2.05, -0.08);
-    const body = lathe([[0, 0], [0.08, 0.02], [0.11, 0.35], [0.13, 0.55], [0.16, 0.8], [0.2, 1.05], [0.17, 1.2], [0.07, 1.27], [0, 1.3]], 10);
-    add(k.skin, body, 0, 0.55, 0);
-    add(k.cloth, lathe([[0.16, 0], [0.19, 0.12], [0.17, 0.26], [0, 0.27]], 10), 0, 1.15, 0);
-    add(k.skin, new THREE.SphereGeometry(0.11, 12, 10), 0.03, 1.98, 0.02);
-    add(k.darkwood, new THREE.TorusGeometry(0.11, 0.025, 5, 12), 0.03, 2.06, 0.02);
-    for (const sx of [-1, 1]) { const arm = new THREE.CylinderGeometry(0.045, 0.06, 0.72, 8); arm.rotateZ(sx * (Math.PI / 2 - 0.32)); add(k.skin, arm, sx * 0.4, 1.92, 0); }
-    return;
-  }
-  const robeC = { virgen: k.white, inmaculada: k.white, dolorosa: k.black, jose: k.purple, corazon: k.red, carmen: k.brown, antonio: k.brown, juan: k.green }[kind] || k.white;
-  const mantC = { virgen: k.blue, inmaculada: k.blue, dolorosa: k.black, jose: k.ochre, corazon: k.cream, carmen: k.cream, antonio: k.brown, juan: k.red }[kind] || k.blue;
-  // pedestal: clouds and cherubs for the Virgins, a gilded base for the rest
-  if (kind === 'virgen' || kind === 'inmaculada') { for (let i = 0; i < 5; i++) add(k.cloud, new THREE.SphereGeometry(0.16 + (i % 2) * 0.05, 10, 8), Math.cos(i * 1.3) * 0.22, 0.12, Math.sin(i * 1.3) * 0.12); if (kind === 'inmaculada') { const moon = new THREE.TorusGeometry(0.24, 0.05, 6, 16, Math.PI); moon.rotateX(Math.PI / 2); moon.rotateZ(Math.PI); add(k.silver, moon, 0, 0.25, 0); } }
-  else add(k.gold, boxGeo(0.5, 0.18, 0.4), 0, 0.09, 0);
-  add(robeC, lathe([[0.26, 0], [0.25, 0.25], [0.21, 0.6], [0.17, 0.9], [0.16, 1.1], [0.13, 1.22], [0.08, 1.3], [0, 1.31]], 14), 0, 0.2, 0);
-  add(mantC, lathe([[0.31, 0], [0.3, 0.3], [0.25, 0.75], [0.2, 1.08], [0.17, 1.22], [0.12, 1.32], [0, 1.36]], 14, ), 0, 0.17, -0.03);
-  add(k.skin, new THREE.SphereGeometry(0.1, 14, 12), 0, 1.6, 0.02);
-  if (kind === 'virgen' || kind === 'inmaculada' || kind === 'dolorosa' || kind === 'carmen') add(mantC, new THREE.SphereGeometry(0.125, 14, 10, 0, Math.PI * 2, 0, Math.PI * 0.62), 0, 1.6, -0.01); // veil
-  else add(k.hair, new THREE.SphereGeometry(0.105, 12, 10, 0, Math.PI * 2, 0, Math.PI * 0.5), 0, 1.61, -0.005);
-  for (const sx of [-1, 1]) add(k.skin, new THREE.SphereGeometry(0.035, 8, 6), sx * 0.09, 1.08, 0.17); // hands joined (or holding)
-  // halo / crown
-  const halo = kind === 'dolorosa' ? k.silver : k.gold;
-  const ring = new THREE.TorusGeometry(0.17, 0.012, 4, 24); add(halo, ring, 0, 1.68, -0.08);
-  if (kind === 'virgen' || kind === 'inmaculada') for (let i = 0; i < 12; i++) { const a = (i / 12) * Math.PI * 2; add(k.gold, new THREE.SphereGeometry(0.018, 6, 5), Math.cos(a) * 0.17, 1.68 + Math.sin(a) * 0.17, -0.08); }
-  if (kind === 'virgen') add(k.gold, new THREE.CylinderGeometry(0.075, 0.06, 0.07, 10), 0, 1.72, 0.01);
-  if (kind === 'dolorosa') { const d = boxGeo(0.012, 0.22, 0.012); d.rotateZ(0.5); add(k.silver, d, 0.04, 1.28, 0.16); }
-  if (kind === 'jose') { add(k.darkwood, new THREE.CylinderGeometry(0.012, 0.012, 1.1, 6), 0.2, 0.85, 0.12); for (let i = 0; i < 4; i++) add(k.white, new THREE.SphereGeometry(0.035, 6, 5), 0.2 + (i % 2) * 0.03, 1.38 + i * 0.04, 0.12); }
-  if (kind === 'jose' || kind === 'antonio' || kind === 'carmen') { add(k.white, lathe([[0.07, 0], [0.06, 0.15], [0.04, 0.25], [0, 0.26]], 8), -0.1, 1.05, 0.18); add(k.skin, new THREE.SphereGeometry(0.05, 8, 6), -0.1, 1.33, 0.19); } // the Child
-  if (kind === 'corazon') add(k.red, new THREE.SphereGeometry(0.04, 8, 6), 0, 1.3, 0.17);
-  if (kind === 'antonio') add(k.red, boxGeo(0.14, 0.03, 0.1), 0.09, 1.04, 0.17);
-}
-
 // ---------------------------------------------------------------- the builder
 export function buildChurch(seed = 7, origin = INTERIOR_ORIGIN) {
   const B = new HouseBuilder(origin.x, origin.z, false);
@@ -290,22 +235,25 @@ export function buildChurch(seed = 7, origin = INTERIOR_ORIGIN) {
   const OX = origin.x, OZ = origin.z;
   // --- materials
   const k = {
-    plaster: B.mat('plaster', () => std(0xffffff, { roughness: 0.95, map: (cal || (cal = calTexture())) })),
-    vault: B.mat('vault', () => std(0xffffff, { roughness: 0.96, map: (cal || (cal = calTexture())), side: THREE.DoubleSide })),
-    mask: B.mat('mask', () => std(0xffffff, { roughness: 0.95, map: (cal || (cal = calTexture())), side: THREE.DoubleSide })),
+    plaster: B.mat('plaster', () => std(0xffffff, { roughness: 0.95, map: calTexture() })),
+    vault: B.mat('vault', () => std(0xffffff, { roughness: 0.96, map: calTexture(), side: THREE.DoubleSide })),
+    mask: B.mat('mask', () => std(0xffffff, { roughness: 0.95, map: calTexture(), side: THREE.DoubleSide })),
+    plinth: B.mat('plinth', () => std(0xffffff, { roughness: 0.85, map: plinthTexture() })),
+    granCol: B.mat('granCol', () => { const m = std(0xffffff, { roughness: 0.85, map: drumTexture() }); m.map.repeat.set(3, 1); return m; }),
     granite: B.mat('granite', () => texMat('granite_wall', 0xf2ebdf, 0.88)),
-    floor: B.mat('floor', () => { const m = std(0xffffff, { roughness: 0.42, map: floorTexture() }); m.map.repeat.set(1 / 2.4, 1 / 2.4); return m; }),
+    floor: B.mat('floor', () => { const m = std(0xffffff, { roughness: 0.5, map: floorTexture() }); m.map.repeat.set(1 / 2.4, 1 / 2.4); return m; }),
     step: B.mat('step', () => texMat('granite_wall', 0xcfc6b6, 0.8)),
     darkwood: B.mat('darkwood', () => texMat('dark_wood', 0xb08868, 0.62)),
-    pew: B.mat('pew', () => texMat('dark_wood', 0xc49a72, 0.5)),
-    gold: B.mat('gold', () => std(0xe8bf5a, { roughness: 0.3, metalness: 0.85, map: goldTexture(3), emissive: 0x2a1a04, emissiveIntensity: 0.25 })),
-    goldPlain: B.mat('goldPlain', () => std(0xdcb04a, { roughness: 0.28, metalness: 0.9, emissive: 0x2a1a04, emissiveIntensity: 0.2 })),
+    pew: B.mat('pew', () => std(0xffffff, { roughness: 0.42, map: pewTexture() })),
+    kneel: B.mat('kneel', () => std(0x6a2a24, { roughness: 0.6 })),
+    gold: B.mat('gold', () => { const m = std(0xffffff, { roughness: 0.5, metalness: 0.68, map: goldTexture(3), envMap: goldEnv(), envMapIntensity: 1.3, emissive: 0x4a3008, emissiveIntensity: 0.42 }); m.map.repeat.set(2.2, 2.2); return m; }),
+    goldPlain: B.mat('goldPlain', () => std(0xf0c25a, { roughness: 0.24, metalness: 0.82, envMap: goldEnv(), envMapIntensity: 1.45, emissive: 0x3a2606, emissiveIntensity: 0.36 })),
     coffer: B.mat('coffer', () => std(0xffffff, { roughness: 0.9, map: cofferTexture(), side: THREE.DoubleSide })),
     iron: B.mat('iron', () => std(0x2a2a2c, { roughness: 0.55, metalness: 0.7 })),
-    brass: B.mat('brass', () => std(0xc8a45a, { roughness: 0.32, metalness: 0.9 })),
-    silver: B.mat('silver', () => std(0xd8dce2, { roughness: 0.25, metalness: 0.9 })),
+    brass: B.mat('brass', () => std(0xd2aa5c, { roughness: 0.3, metalness: 0.85, envMap: goldEnv(), envMapIntensity: 1.1, emissive: 0x2a1a06, emissiveIntensity: 0.2 })),
+    silver: B.mat('silver', () => std(0xe6e8ec, { roughness: 0.22, metalness: 0.85, envMap: goldEnv(), envMapIntensity: 1.3, emissive: 0x202020, emissiveIntensity: 0.25 })),
     red: B.mat('red', () => std(0x9a1f22, { roughness: 0.8 })),
-    carpet: B.mat('carpet', () => std(0x8a1a1e, { roughness: 1 })),
+    carpet: B.mat('carpet', () => std(0xffffff, { roughness: 1, map: carpetTexture() })),
     white: B.mat('white', () => std(0xf4f1ea, { roughness: 0.7 })),
     cloth: B.mat('cloth', () => std(0xf6f4ee, { roughness: 0.9 })),
     black: B.mat('black', () => std(0x1c1b20, { roughness: 0.75 })),
@@ -348,8 +296,31 @@ export function buildChurch(seed = 7, origin = INTERIOR_ORIGIN) {
   { const half = new THREE.CylinderGeometry(AR, AR, P, 32, 1, false, 0, Math.PI); half.translate(0, P / 2, 0); add(k.step, half, XA, 0, 0); }
   add(k.floor, planeGeo(XA - (XP + 1.5), 2 * HW, 1).rotateX(-Math.PI / 2), (XA + XP + 1.5) / 2, P + 0.005, 0);
   { const disc = new THREE.CircleGeometry(AR, 32, -Math.PI / 2, Math.PI); disc.rotateX(-Math.PI / 2); add(k.floor, disc, XA, P + 0.005, 0); }
-  // the red runner up the middle and up the steps
-  add(k.carpet, planeGeo(XP - (XC + 1) , 1.5, 1).rotateX(-Math.PI / 2), (XP + XC + 1) / 2, 0.012, 0);
+  // the red runner up the middle, up the five steps (a brass rod at the foot of each riser) and onto the presbytery
+  {
+    const w = 1.5, pos = [], uv = [], idx = [], lift = 0.012;
+    let along = 0;
+    const strip = (x0, y0, x1, y1) => {
+      const k = pos.length / 3, L = Math.hypot(x1 - x0, y1 - y0);
+      pos.push(x0, y0, -w / 2, x0, y0, w / 2, x1, y1, w / 2, x1, y1, -w / 2);
+      uv.push(0, along / 3, 1, along / 3, 1, (along + L) / 3, 0, (along + L) / 3);
+      idx.push(k, k + 1, k + 2, k, k + 2, k + 3);
+      along += L;
+    };
+    strip(XC + 1, lift, XP - 0.012, lift);
+    for (let i = 0; i < NS; i++) { const xs = XP + i * tread - 0.012, y = rise * i; strip(xs, y + lift, xs, y + rise + lift); strip(xs, y + rise + lift, xs + tread, y + rise + lift); }
+    strip(XP + 1.5 - 0.012, P + lift, XA - 2.6, P + lift);
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setIndex(idx); g.computeVertexNormals();
+    add(k.carpet, g);
+    for (let i = 0; i < NS; i++) add(k.brass, new THREE.CylinderGeometry(0.011, 0.011, w + 0.12, 8).rotateX(Math.PI / 2), XP + i * tread - 0.03, rise * i + 0.03, 0);
+    for (const e of [XC + 1, XA - 2.6]) add(k.brass, boxGeo(0.03, 0.012, w + 0.04), e, 0.018 + (e > XP ? P : 0), 0); // the brass edging at its ends
+  }
+  // tomb slabs in the floor, where the old families of Guareña were buried (in the cross aisle and under the choir)
+  [[2.6, -3.2], [4.9, -3.2], [2.6, 3.2], [4.9, 3.2], [X0 + 4.8, -5.2]].forEach(([tx, tz], i) => {
+    const m = new THREE.Mesh(planeGeo(0.95, 1.95, 1).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ map: tombTexture(i), roughness: 0.6 }));
+    m.geometry.attributes.uv.array.forEach((v, j, a) => { a[j] = j % 2 ? v / 1.95 : v / 0.95; });
+    m.receiveShadow = true; extra(m, tx, 0.004, tz, Math.PI / 2);
+  });
 
   // ================================================================ walls (with their doors and windows)
   const wallH = S + 9;
@@ -358,9 +329,8 @@ export function buildChurch(seed = 7, origin = INTERIOR_ORIGIN) {
   const wallX = (z0, z1, x, holes = [], h = wallH) => B.wall(k.plaster, x, z0, x, z1, h, holes);
   // (the door and the oculus one above the other: the middle strip of the wall in pieces)
   wallX(-HW, -1.75, X0, [], 14.6); wallX(1.75, HW, X0, [], 14.6);
-  wallX(-1.75, -1.6, X0, [], 5.2); wallX(1.6, 1.75, X0, [], 5.2);
   B.wall(k.plaster, X0, -1.75, X0, 1.75, 14.6 - 5.2, [[0, 3.5, 10.8 - 5.2, 14.3 - 5.2]], 5.2, false);
-  seg(X0, -1.7, X0, 1.7, 3); // (the door is shut behind you: out by the door's own prompt)
+  seg(X0, -1.7, X0, 1.7, 3); // (the great door is shut behind you: out through its lobby)
   // the side walls of the choir bay (the tower stair door on the Epistle side)
   wallZ(X0, XC + PW / 2, -HW, [], 10.2);
   wallZ(X0, XC + PW / 2, HW, [[3.2, 4.4, 0, 2.3]], 10.2);
@@ -370,7 +340,7 @@ export function buildChurch(seed = 7, origin = INTERIOR_ORIGIN) {
     for (const b of bays) {
       const x0 = b.xa + PW / 2, x1 = b.xb - PW / 2;
       const isDoor = b === doorBay;
-      wallZ(x0 - 0.2, x1 + 0.2, zo, isDoor ? [[(x1 - x0) / 2 + 0.2 - 1.5, (x1 - x0) / 2 + 0.2 + 1.5, 0, 4.6]] : [], 10.2); // (a little into the piers: no seam for the sun)
+      wallZ(x0 - 0.2, x1 + 0.2, zo, isDoor ? [[(x1 - x0) / 2 + 0.2 - 1.65, (x1 - x0) / 2 + 0.2 + 1.65, 0, 4.9]] : [], 10.2); // (a little into the piers: no seam for the sun)
       if (isDoor) seg(b.xm - 1.6, zo, b.xm + 1.6, zo, 3);
       // the chapel ceiling: a simple ribbed vault
       add(k.vault, boxGeo(x1 - x0, 0.3, CD, 3), (x0 + x1) / 2, 10.05, s * (HW + CD / 2));
@@ -410,7 +380,9 @@ export function buildChurch(seed = 7, origin = INTERIOR_ORIGIN) {
     const sh = new THREE.CylinderGeometry(0.62, 0.67, h1 - h0 - 0.7, 48, 12, false);
     const p = sh.attributes.position;
     for (let i = 0; i < p.count; i++) { const px = p.getX(i), pz = p.getZ(i), a = Math.atan2(pz, px); if (px * px + pz * pz < 1e-10) continue; const f = 1 - 0.07 * Math.max(0, Math.cos(a * 24)) ** 2; p.setXYZ(i, px * f, p.getY(i), pz * f); } // (the caps' centres stay put)
-    sh.computeVertexNormals(); sh.translate(0, (h1 + h0 + 0.68) / 2 - 0.01, 0); add(k.granite, sh, x, 0, z);
+    sh.computeVertexNormals(); sh.translate(0, (h1 + h0 + 0.68) / 2 - 0.01, 0);
+    { const uvA = sh.attributes.uv; const L = h1 - h0 - 0.7; for (let i = 0; i < uvA.count; i++) uvA.setXY(i, uvA.getX(i), uvA.getY(i) * L / 0.74); } // (a drum every 74 cm)
+    add(k.granCol, sh, x, 0, z);
     // the Ionic capital: echinus, two volutes facing the nave, the abacus; then the impost block
     add(k.granite, lathe([[0.62, 0], [0.7, 0.1], [0.74, 0.22], [0, 0.23]], 24), x, h1, z);
     for (const sx of [-1, 1]) { const vol = new THREE.TorusGeometry(0.2, 0.09, 8, 16); vol.rotateY(Math.PI / 2); add(k.granite, vol, x + sx * 0.66, h1 + 0.12, z - s * 0.18); }
@@ -542,32 +514,43 @@ export function buildChurch(seed = 7, origin = INTERIOR_ORIGIN) {
     }
   }
 
-  // ================================================================ doors: the main one (with its wooden lobby), the south one, the north one (shut)
-  const cancel = (x, z, w, d, ry) => { // the «cancel»: a wooden draught lobby inside the door
-    const g = new THREE.Group();
-    const mk = (geo, mat, px, py, pz) => { const m = new THREE.Mesh(geo, B.mats.get(mat)); m.position.set(px, py, pz); m.castShadow = m.receiveShadow = true; g.add(m); };
-    mk(boxGeo(0.08, 3.2, d, 1.2), k.darkwood, -w / 2, 1.6, d / 2); mk(boxGeo(0.08, 3.2, d, 1.2), k.darkwood, w / 2, 1.6, d / 2);
-    mk(boxGeo(w + 0.08, 0.1, d, 1.2), k.darkwood, 0, 3.2, d / 2);
-    for (const sx of [-1, 1]) mk(boxGeo(w / 2 - 0.65, 3.0, 0.07, 1.2), k.darkwood, sx * (w / 4 + 0.33), 1.5, d);
-    g.position.set(OX + x, 0, OZ + z); g.rotation.y = ry; B.extra.push(g);
+  // ================================================================ the doors: round-headed like the portals outside (churchdoors.js),
+  // their great leaves shut behind you; inside each one, its wooden lobby (the «cancel») with padded swing leaves
+  const DOORS = { oeste: { w: 2.6, spring: 3.7, W: 3.5, H: 5.2 }, sur: { w: 2.3, spring: 3.3, W: 3.3, H: 4.9 }, norte: { w: 2.2, spring: 3.2, W: 3.3, H: 4.9 } };
+  const cancels = [];
+  // key; (x, z) on the wall's line; ry turns local +z into the church (the lobby stands out that way)
+  const doorway = (key, x, z, ry, deep = 1.05) => {
+    const D = DOORS[key], c = Math.cos(ry), sn = Math.sin(ry);
+    const wallG = doorwayWall(D.W, D.H, D.w, D.spring, -0.07, 0.07); wallG.rotateY(ry); add(k.plaster, wallG, x, 0, z);
+    const rv = revealGeo(D.w, D.spring, deep); rv.rotateY(ry); add(k.granite, rv, x, 0, z);
+    const dr = new ChurchDoor({ w: D.w, spring: D.spring, style: key === 'oeste' ? 'cuarterones' : 'clavos', key });
+    dr.group.rotation.y = ry + Math.PI; // (its street face looks out)
+    dr.group.position.set(OX + x - sn * (deep - 0.12), 0, OZ + z - c * (deep - 0.12));
+    B.extra.push(dr.group);
+    const L = cancelLobby(Math.max(3.4, D.w + 1.1), 2.3, 3.4);
+    const lx = x + sn * 0.07, lz = z + c * 0.07;
+    L.group.rotation.y = ry; L.group.position.set(OX + lx, 0, OZ + lz); B.extra.push(L.group);
+    const W2 = (px, pz) => [lx + px * c + pz * sn, lz - px * sn + pz * c];
+    for (const [ax, az, bx, bz] of L.segs) { const p0 = W2(ax, az), p1 = W2(bx, bz); seg(p0[0], p0[1], p1[0], p1[1], 3); }
+    const f = W2(0, L.d);
+    cancels.push({ key, lobby: L, door: dr, x: OX + f[0], z: OZ + f[1], nx: sn, nz: c, half: L.front.w / 2 });
+    return { f, n: [sn, c] };
   };
-  cancel(X0 + 0.1, 0, 3.4, 2.2, Math.PI / 2);
-  add(k.darkwood, boxGeo(0.12, 4.6, 3.0, 1.2), X0 - 0.02, 2.3, 0); // the great door itself (shut behind you)
+  const dW = doorway('oeste', X0, 0, Math.PI / 2);
   const sx3 = doorBay.xm;
-  add(k.darkwood, boxGeo(3.0, 4.4, 0.1, 1.2), sx3, 2.2, HW + CD + 0.02);
-  add(k.darkwood, boxGeo(3.0, 4.4, 0.1, 1.2), sx3, 2.2, -HW - CD - 0.02);
-  cancel(sx3, HW + CD - 0.1, 3.2, 2.0, Math.PI);
-  cancel(sx3, -HW - CD + 0.1, 3.2, 2.0, 0);
+  const dS = doorway('sur', sx3, HW + CD, Math.PI);
+  const dN = doorway('norte', sx3, -HW - CD, 0);
   // the tower stair door, the sacristy door
   add(k.darkwood, boxGeo(1.2, 2.3, 0.1, 1.2), X0 + 3.8, 1.15, HW - 0.05);
   { const a = 1.32, sx = XA + Math.cos(a) * (AR - 0.06), sz = Math.sin(a) * (AR - 0.06); add(k.darkwood, boxGeo(1.3, 2.4, 0.1, 1.2).rotateY(-a + Math.PI / 2), sx, P + 1.2, sz); B.interact({ type: 'info', x: XA + Math.cos(a) * (AR - 1), z: Math.sin(a) * (AR - 1), y: P, r: 1.5, label: 'Sacristía', text: 'La puerta de la sacristía está cerrada. Dicen que dentro tiene una cúpula gallonada con casetones.' }); }
-  // ways out
-  B.interact({ type: 'exit', x: X0 + 1.4, z: 0, r: 1.6, label: 'Salir por la puerta principal', door: 'oeste' });
-  B.interact({ type: 'exit', x: sx3, z: HW + CD - 1.2, r: 1.6, label: 'Salir por la puerta del Mediodía', door: 'sur' });
-  B.interact({ type: 'info', x: sx3, z: -HW - CD + 1.2, r: 1.5, label: 'Puerta del Evangelio', text: 'La puerta del lado norte está cerrada; hoy se entra por la de los pies y por la del Mediodía.' });
+  // ways out: through the lobby (walk in, or press E before it)
+  const before = (d, m) => ({ x: d.f[0] + d.n[0] * m, z: d.f[1] + d.n[1] * m });
+  B.interact({ type: 'exit', ...before(dW, 0.7), r: 1.3, label: 'Salir por la puerta principal', door: 'oeste' });
+  B.interact({ type: 'exit', ...before(dS, 0.7), r: 1.3, label: 'Salir por la puerta del Mediodía', door: 'sur' });
+  B.interact({ type: 'info', ...before(dN, 0.7), r: 1.3, label: 'Puerta del Evangelio', text: 'La puerta del lado norte está cerrada; hoy se entra por la de los pies y por la del Mediodía.' });
   B.interact({ type: 'info', x: X0 + 3.8, z: HW - 0.8, r: 1.3, label: 'Escalera de la torre', text: 'La escalera de caracol de la torre: más de cien peldaños de granito. Está cerrada con llave.' });
-  B.spots.entrada = { x: OX + X0 + 2.6, z: OZ + 0, h: Math.PI / 2 };
-  B.spots.sur = { x: OX + sx3, z: OZ + HW + CD - 2.4, h: Math.PI };
+  { const q = before(dW, 1.7); B.spots.entrada = { x: OX + q.x, z: OZ + q.z, h: Math.PI / 2 }; }
+  { const q = before(dS, 1.7); B.spots.sur = { x: OX + q.x, z: OZ + q.z, h: Math.PI }; }
   // the spots are in world coordinates already (the kit's spots are in local ones: see finish below)
 
   // ================================================================ windows: openings with their glass and the sun's mask
@@ -584,87 +567,8 @@ export function buildChurch(seed = 7, origin = INTERIOR_ORIGIN) {
   // the oculus over the main door (round, its light on the choir)
   { const m = maskWithHole(3.9, 3.9, 3.2, 3.2, true); m.rotateY(-Math.PI / 2); add(k.mask, m, X0 - 0.05, 12.55, 0); const gl = new THREE.CircleGeometry(1.6, 32); gl.rotateY(Math.PI / 2); add(glass, gl, X0 + 0.05, 12.55, 0); const ring = new THREE.TorusGeometry(1.7, 0.18, 6, 32); ring.rotateY(Math.PI / 2); add(k.granite, ring, X0 + 0.1, 12.55, 0); windows.push({ x: X0, z: 0, nx: -1, nz: 0, w: 3.2, y0: 10.95, y1: 14.15, round: true }); }
 
-  // ================================================================ the retablo mayor (gilded wood, 1945–49): three panels round the apse
-  const retablo = (cx, cz, ry, W, tiers, center) => {
-    // local frame: X across, Y up, Z out into the church
-    const g = [];
-    const put = (key, geo, lx, ly, lz) => { geo.translate(lx, ly, lz); geo.rotateY(ry); geo.translate(cx, P, cz); g.push([key, geo]); };
-    const cols = tiers.cols;
-    // sotabanco and banco (predella)
-    put(k.gold, boxGeo(W, 0.6, 0.7, 0.8), 0, 0.3, 0.15);
-    put(k.gold, boxGeo(W, 1.3, 0.55, 0.8), 0, 1.25, 0.05);
-    put(k.goldPlain, boxGeo(W + 0.2, 0.14, 0.75, 1), 0, 1.95, 0.08);
-    let y = 2.02;
-    for (let t = 0; t < tiers.h.length; t++) {
-      const h = tiers.h[t];
-      put(k.gold, boxGeo(W, h, 0.3, 1.2), 0, y + h / 2, -0.12); // the back board
-      // the columns between the streets: twisted (salomónicas), on pedestals, with capitals
-      const n = cols.length;
-      for (let c = 0; c <= n; c++) {
-        const lx = -W / 2 + (W * c) / n;
-        if (c > 0 && c < n || tiers.outer) {
-          const col = new THREE.CylinderGeometry(0.15, 0.17, h - 0.5, 16, 24);
-          const p = col.attributes.position;
-          for (let i = 0; i < p.count; i++) { const py = p.getY(i), a = Math.atan2(p.getZ(i), p.getX(i)), rr = Math.hypot(p.getX(i), p.getZ(i)) * (1 + 0.22 * Math.sin(a * 2 + py * 9)); p.setXYZ(i, Math.cos(a) * rr, py, Math.sin(a) * rr); }
-          col.computeVertexNormals();
-          put(k.goldPlain, col, lx, y + 0.25 + (h - 0.5) / 2, 0.22);
-          put(k.gold, boxGeo(0.42, 0.25, 0.42, 0.5), lx, y + 0.125, 0.22);
-          put(k.gold, lathe([[0.16, 0], [0.24, 0.12], [0.27, 0.22], [0, 0.23]], 12), lx, y + h - 0.25, 0.22);
-        }
-      }
-      // the streets: a niche with an image, or a painting in a carved frame
-      for (let c = 0; c < n; c++) {
-        const lx = -W / 2 + (W * (c + 0.5)) / n, cw = W / n;
-        const it = cols[c][t];
-        if (!it) continue;
-        if (it.niche) {
-          put(k.velvet, boxGeo(cw * 0.62, h * 0.82, 0.05, 1), lx, y + h * 0.47, 0.05);
-          const ar = new THREE.TorusGeometry(cw * 0.31, 0.06, 6, 16, Math.PI); put(k.goldPlain, ar, lx, y + h * 0.88 - cw * 0.31, 0.12);
-          g.push(['statue', { kind: it.niche, lx, ly: y + 0.08, lz: 0.2, h: Math.min(h * 0.72, 1.9) }]);
-        } else if (it.paint) {
-          const pw = cw * 0.7, ph = Math.min(h * 0.82, pw * 1.5);
-          g.push(['paint', { kind: it.paint, lx, ly: y + h * 0.48, lz: 0.08, w: pw, h: ph }]);
-          for (const [fx, fy, fw, fh] of [[0, ph / 2 + 0.06, pw + 0.24, 0.12], [0, -ph / 2 - 0.06, pw + 0.24, 0.12], [-pw / 2 - 0.06, 0, 0.12, ph], [pw / 2 + 0.06, 0, 0.12, ph]]) put(k.goldPlain, boxGeo(fw, fh, 0.12, 0.5), lx + fx, y + h * 0.48 + fy, 0.1);
-        }
-      }
-      // the entablature over the tier: architrave, a carved frieze, a projecting cornice
-      y += h;
-      put(k.goldPlain, boxGeo(W + 0.1, 0.14, 0.5, 1), 0, y + 0.07, 0.15);
-      put(k.gold, boxGeo(W + 0.1, 0.32, 0.45, 0.6), 0, y + 0.3, 0.12);
-      put(k.goldPlain, boxGeo(W + 0.5, 0.16, 0.8, 1), 0, y + 0.54, 0.25);
-      y += 0.62;
-    }
-    // the attic: a crowning panel with its arch, scrolls and finials
-    if (tiers.attic) {
-      const aw = W * 0.4, ah = tiers.attic.h;
-      put(k.gold, boxGeo(aw, ah, 0.3, 1), 0, y + ah / 2, -0.12);
-      const top = new THREE.TorusGeometry(aw / 2, 0.14, 6, 20, Math.PI); put(k.goldPlain, top, 0, y + ah, 0.05);
-      put(k.gold, new THREE.CircleGeometry(aw / 2, 20, 0, Math.PI), 0, y + ah, -0.1);
-      for (const sx of [-1, 1]) { const sc = new THREE.TorusGeometry(0.45, 0.12, 6, 14, Math.PI * 1.2); sc.rotateZ(sx > 0 ? -0.3 : Math.PI + 0.3); put(k.goldPlain, sc, sx * (aw / 2 + 0.4), y + 0.5, 0.05); put(k.goldPlain, lathe([[0.12, 0], [0.16, 0.15], [0.08, 0.35], [0.12, 0.5], [0, 0.75]], 10), sx * (W / 2 - 0.3), y, 0.1); }
-      if (tiers.attic.cristo) g.push(['statue', { kind: 'cristo', lx: 0, ly: y + 0.2, lz: 0.1, h: Math.min(ah - 0.4, 2.2) }]);
-      if (tiers.attic.paint) { g.push(['paint', { kind: tiers.attic.paint, lx: 0, ly: y + ah * 0.5, lz: 0.05, w: aw * 0.7, h: ah * 0.7 }]); }
-    }
-    // the tabernacle in the middle of the predella
-    if (center && center.sagrario) {
-      put(k.goldPlain, boxGeo(1.1, 1.1, 0.6, 1), 0, 1.6, 0.45);
-      put(k.gold, lathe([[0.42, 0], [0.42, 0.1], [0.3, 0.3], [0.08, 0.55], [0, 0.6]], 12), 0, 2.15, 0.45);
-      put(k.silver, boxGeo(0.4, 0.55, 0.05, 1), 0, 1.6, 0.76);
-    }
-    for (const [key, geo] of g) {
-      if (key === 'statue') { const o = geo, c = Math.cos(ry), s = Math.sin(ry); statue(B, o.kind, cx + o.lx * c + o.lz * s, P + o.ly, cz - o.lx * s + o.lz * c, ry, o.h, k); continue; }
-      if (key === 'paint') { const o = geo, c = Math.cos(ry), s = Math.sin(ry); const m = new THREE.Mesh(planeGeo(o.w, o.h, 1), new THREE.MeshStandardMaterial({ map: paintingTexture(o.kind, Math.floor(r() * 1e6)), roughness: 0.6 })); m.position.set(OX + cx + o.lx * c + o.lz * s, P + o.ly, OZ + cz - o.lx * s + o.lz * c); m.rotation.y = ry; m.receiveShadow = true; B.extra.push(m); continue; }
-      B.add(key, geo, 0, 0, 0);
-    }
-  };
-  // the central panel faces west across the presbytery; the side panels turn in with the apse
-  {
-    const backX = XA + AR - 1.25;
-    retablo(backX, 0, -Math.PI / 2, 6.4, { h: [4.4, 3.8], outer: true, cols: [[{ paint: 'pedro' }, { paint: 'santiago' }], [{ niche: 'virgen' }, { paint: 'asuncion' }], [{ paint: 'pablo' }, { paint: 'andres' }]], attic: { h: 3.0, cristo: true } }, { sagrario: true });
-    for (const s of [-1, 1]) {
-      const a = s * 0.92, cx = XA + Math.cos(a) * (AR - 1.55), cz = Math.sin(a) * (AR - 1.55);
-      retablo(cx, cz, -Math.PI / 2 - a, 3.4, { h: [4.4, 3.8], cols: [[{ paint: s < 0 ? 'juan' : 'mateo' }, { paint: s < 0 ? 'mateo' : 'juan' }]] }, null);
-    }
-  }
+  // ================================================================ the retablo mayor (gilded wood, 1945–49): retablo.js, after the photographs
+  const RT = buildRetablo(k, { P, xb: XA + AR - 1.15, OX, OZ, add, B, statue: carve });
   // the altar (the table of the Eucharist), its cloth and candles; the ambo; the chairs; the sanctuary lamp
   {
     const ax = XA - 0.6;
@@ -687,6 +591,7 @@ export function buildChurch(seed = 7, origin = INTERIOR_ORIGIN) {
   }
 
   // ================================================================ the chapels: their altars and images
+  const CHAPEL_SAINTS = ['isidro', 'antonio', 'gregorioOst', 'lucia', 'barbara', 'ana', 'blas', 'roque', 'isidro', 'antonio'];
   const CHAPELS = [
     { b: 0, s: -1, kind: 'bautismo', title: 'Capilla bautismal' },
     { b: 0, s: 1, kind: 'dolorosa', title: 'Capilla de la Virgen de los Dolores', candles: true },
@@ -705,7 +610,7 @@ export function buildChurch(seed = 7, origin = INTERIOR_ORIGIN) {
       add(k.darkwood, new THREE.ConeGeometry(0.64, 0.35, 24), cx, 1.22, s * (HW + 1.6));
       add(k.brass, boxGeo(0.03, 0.25, 0.03), cx, 1.5, s * (HW + 1.6));
       B.footprint(1.3, 1.3, cx, s * (HW + 1.6), 0, 1.1);
-      const m = new THREE.Mesh(planeGeo(1.8, 2.6, 1), new THREE.MeshStandardMaterial({ map: paintingTexture('bautismo', 77), roughness: 0.6 })); extra(m, cx, 3.2, zb + -s * 0.02, ry);
+      const m = new THREE.Mesh(planeGeo(1.8, 2.6, 1), new THREE.MeshStandardMaterial({ map: oilPainting('bautismo', { seed: 77 }), roughness: 0.6 })); extra(m, cx, 3.2, zb + -s * 0.02, ry);
       for (const [fx, fy, fw, fh] of [[0, 1.36, 2.1, 0.14], [0, -1.36, 2.1, 0.14], [-0.98, 0, 0.14, 2.6], [0.98, 0, 0.14, 2.6]]) add(k.goldPlain, boxGeo(fw, fh, 0.1, 0.5), cx + fx, 3.2 + fy, zb - s * 0.04);
       // a wrought-iron screen across the chapel
       for (let x = b.xa + PW / 2 + 0.3; x < b.xb - PW / 2 - 0.2; x += 0.14) add(k.iron, boxGeo(0.025, 2.1, 0.025), x, 1.05, s * (HW + 0.35));
@@ -720,18 +625,20 @@ export function buildChurch(seed = 7, origin = INTERIOR_ORIGIN) {
       const W2 = 4.2, ox = cx, oz = zb - s * 0.12;
       const put = (key, geo, lx, ly, lz) => { geo.translate(lx, ly, lz); geo.rotateY(ry); geo.translate(ox, 0, oz); B.add(key, geo, 0, 0, 0); };
       put(k.gold, boxGeo(W2, 1.0, 0.4, 0.8), 0, 1.5, 0.05);
-      put(k.gold, boxGeo(W2, 3.6, 0.25, 1), 0, 3.8, -0.05);
+      put(k.goldPlain, boxGeo(W2, 3.6, 0.25, 1), 0, 3.8, -0.05);
+      put(k.gold, boxGeo(W2 + 0.1, 0.36, 0.3, 1), 0, 5.4, 0.0); // the carved frieze under the cornice
+      for (const lx of [-1.45, 1.45]) { put(k.gold, boxGeo(0.95, 0.22, 0.28, 1), lx, 3.05, 0.0); put(k.gold, boxGeo(0.95, 0.22, 0.28, 1), lx, 4.75, 0.0); } // carved bands round the side paintings
       for (const lx of [-W2 / 2 + 0.2, -0.75, 0.75, W2 / 2 - 0.2]) { const col = new THREE.CylinderGeometry(0.1, 0.11, 3.2, 12, 16); const p = col.attributes.position; for (let i = 0; i < p.count; i++) { const py = p.getY(i), a = Math.atan2(p.getZ(i), p.getX(i)), rr = Math.hypot(p.getX(i), p.getZ(i)) * (1 + 0.25 * Math.sin(a * 2 + py * 10)); p.setXYZ(i, Math.cos(a) * rr, py, Math.sin(a) * rr); } col.computeVertexNormals(); put(k.goldPlain, col, lx, 3.7, 0.2); }
       put(k.goldPlain, boxGeo(W2 + 0.3, 0.2, 0.55, 1), 0, 5.65, 0.12);
-      put(k.gold, boxGeo(1.6, 1.4, 0.25, 1), 0, 6.45, -0.05);
+      put(k.goldPlain, boxGeo(1.6, 1.4, 0.25, 1), 0, 6.45, -0.05); put(k.gold, boxGeo(1.3, 1.1, 0.27, 1), 0, 6.45, -0.05);
       const arc = new THREE.TorusGeometry(0.8, 0.1, 6, 16, Math.PI); put(k.goldPlain, arc, 0, 7.15, 0.0);
       put(k.velvet, boxGeo(1.2, 3.0, 0.04, 1), 0, 3.75, 0.1);
       for (const lx of [-1.45, 1.45]) {
-        const m = new THREE.Mesh(planeGeo(0.8, 1.3, 1), new THREE.MeshStandardMaterial({ map: paintingTexture(lx < 0 ? 'pedro' : 'juan', Math.floor(r() * 1e6)), roughness: 0.6 }));
+        const m = new THREE.Mesh(planeGeo(0.8, 1.3, 1), new THREE.MeshStandardMaterial({ map: oilPainting(CHAPEL_SAINTS[(CHAPELS.indexOf(C) * 2 + (lx < 0 ? 0 : 1)) % CHAPEL_SAINTS.length], { seed: 40 + CHAPELS.indexOf(C) * 2 + (lx < 0 ? 0 : 1) }), roughness: 0.6 }));
         const c = Math.cos(ry), sn = Math.sin(ry); m.position.set(OX + ox + lx * c + 0.12 * sn, 3.9, OZ + oz - lx * sn + 0.12 * c); m.rotation.y = ry; B.extra.push(m);
       }
       const c = Math.cos(ry), sn = Math.sin(ry);
-      statue(B, C.kind, ox + 0.3 * sn, C.kind === 'cristo' ? 2.1 : 2.15, oz + 0.3 * c, ry, C.kind === 'cristo' ? 1.5 : 1.55, k);
+      carve(B, C.kind, ox + 0.3 * sn, C.kind === 'cristo' ? 2.1 : 2.15, oz + 0.3 * c, ry, C.kind === 'cristo' ? 1.5 : 1.55, k);
     }
     // a stand of candles before it (light one yourself)
     if (C.candles) {
@@ -747,7 +654,7 @@ export function buildChurch(seed = 7, origin = INTERIOR_ORIGIN) {
     // the wall painting of Santo Domingo and Santa Catalina, half hidden behind the right-hand collateral altar
     if (C.mural) {
       for (const [kind, dx] of [['domingo', -1.85], ['catalina', 1.85]]) {
-        const m = new THREE.Mesh(planeGeo(1.0, 1.9, 1), new THREE.MeshStandardMaterial({ map: paintingTexture(kind, 31), roughness: 0.95, color: 0xe8dcc8 }));
+        const m = new THREE.Mesh(planeGeo(1.0, 1.9, 1), new THREE.MeshStandardMaterial({ map: oilPainting(kind, { seed: 31, fresco: true }), roughness: 0.95 }));
         extra(m, cx + dx, 3.5, zb - s * 0.01, ry);
       }
       B.interact({ type: 'info', x: cx, z: s * (HW + 1.2), r: 1.6, label: 'Pintura mural', text: 'Detrás del altar colateral asoma una pintura mural antigua: Santo Domingo de Guzmán y Santa Catalina de Siena.' });
@@ -770,17 +677,17 @@ export function buildChurch(seed = 7, origin = INTERIOR_ORIGIN) {
     B.footprint(2.3, 0.7, px + 1.9, pz + 0.2, 0, 1.4);
     // holy water at the doors: shells of granite on a foot
     const stoup = (x, z) => { add(k.granite, lathe([[0.1, 0], [0.12, 0.6], [0.08, 0.8], [0.32, 0.92], [0.36, 1.0], [0, 1.0]], 16), x, 0, z); B.footprint(0.6, 0.6, x, z, 0, 1); };
-    stoup(X0 + 2.0, -2.4); stoup(X0 + 2.0, 2.4); stoup(sx3 - 1.9, HW + CD - 1.0);
-    B.interact({ type: 'pila', x: X0 + 2.0, z: -2.4, r: 1.0, label: 'Santiguarse con agua bendita' });
-    B.interact({ type: 'pila', x: X0 + 2.0, z: 2.4, r: 1.0, label: 'Santiguarse con agua bendita' });
+    stoup(X0 + 3.0, -2.6); stoup(X0 + 3.0, 2.6); stoup(sx3 - 2.4, HW + CD - 2.9);
+    B.interact({ type: 'pila', x: X0 + 3.0, z: -2.6, r: 1.0, label: 'Santiguarse con agua bendita' });
+    B.interact({ type: 'pila', x: X0 + 3.0, z: 2.6, r: 1.0, label: 'Santiguarse con agua bendita' });
     // the plaque and the collection box by the main door
     const pl = new THREE.Mesh(planeGeo(0.9, 0.56, 1), new THREE.MeshStandardMaterial({ map: plaqueTexture(), roughness: 0.6 })); extra(pl, X0 + 0.05, 1.7, -2.3, Math.PI / 2);
     B.interact({ type: 'info', x: X0 + 1.2, z: -2.3, r: 1.2, label: 'Leer la placa', text: 'Santa María de Guareña: empezada en 1557 con trazas de Sancho de Cabrera, la siguió Rodrigo Gil de Hontañón (1560). La torre se acabó en 1700 y la fachada en 1793. En 1900 se hundió una bóveda; se reabrió en 1917. El retablo mayor es de 1945–49.' });
-    add(k.darkwood, boxGeo(0.35, 0.5, 0.25, 1), X0 + 0.5, 1.0, 1.9); add(k.iron, boxGeo(0.1, 1.0, 0.1), X0 + 0.5, 0.5, 1.9);
-    B.interact({ type: 'cepillo', x: X0 + 1.1, z: 1.9, r: 1.0, label: 'Echar un donativo <small>(1 €)</small>' });
+    add(k.darkwood, boxGeo(0.35, 0.5, 0.25, 1), X0 + 0.5, 1.0, 2.5); add(k.iron, boxGeo(0.1, 1.0, 0.1), X0 + 0.5, 0.5, 2.5);
+    B.interact({ type: 'cepillo', x: X0 + 1.1, z: 2.6, r: 1.0, label: 'Echar un donativo <small>(1 €)</small>' });
     // two confessionals in the door bay
     for (const s of [-1, 1]) {
-      const cx = doorBay.xa + PW / 2 + 1.0, cz = s * (HW + CD - 0.75);
+      const cx = doorBay.xa + PW / 2 + 0.6, cz = s * (HW + CD - 0.75);
       B.block(k.darkwood, 1.6, 2.4, 1.1, cx, 0, cz, 0, 1.2);
       add(k.darkwood, new THREE.ConeGeometry(1.0, 0.5, 4).rotateY(Math.PI / 4), cx, 2.65, cz);
       add(k.velvet, boxGeo(0.5, 1.5, 0.02, 1), cx, 1.25, cz - s * 0.56);
@@ -791,35 +698,85 @@ export function buildChurch(seed = 7, origin = INTERIOR_ORIGIN) {
       for (const dx of [-0.75, 0.75]) {
         if (n >= 14) break;
         const x = XC + i * BAY + dx; if (x > XP - 1 || x < XC) continue;
-        const m = new THREE.Mesh(planeGeo(0.38, 0.48, 1), new THREE.MeshStandardMaterial({ map: viaCrucisTexture(n), roughness: 0.7 }));
-        extra(m, x, 2.9, s * (HW + 0.79), s > 0 ? Math.PI : 0); add(k.darkwood, boxGeo(0.04, 0.3, 0.03), x, 3.3, s * (HW + 0.79));
+        const m = new THREE.Mesh(planeGeo(0.42, 0.52, 1), new THREE.MeshStandardMaterial({ map: viaCrucisTexture(n), roughness: 0.6 }));
+        extra(m, x, 2.9, s * (HW + 0.79), s > 0 ? Math.PI : 0);
+        for (const [fw, fh, fx, fy] of [[0.52, 0.05, 0, 0.285], [0.52, 0.05, 0, -0.285], [0.05, 0.52, 0.235, 0], [0.05, 0.52, -0.235, 0]]) add(k.goldPlain, boxGeo(fw, fh, 0.03, 1), x + fx, 2.9 + fy, s * (HW + 0.8));
+        add(k.darkwood, boxGeo(0.035, 0.26, 0.03), x, 3.42, s * (HW + 0.8)); add(k.darkwood, boxGeo(0.16, 0.035, 0.03), x, 3.48, s * (HW + 0.8));
         n++;
       }
     }
   }
 
-  // ================================================================ the pews: two blocks, a cross aisle between the side doors
+  // ================================================================ the pews: two blocks, a cross aisle between the side doors. Oak:
+  // ends cut with a scroll for the arm, a panelled back with the shelf for the missals behind it, a padded kneeler
   const pews = [];
   {
     const zIn = 1.25, zOut = HW - 1.0, len = zOut - zIn, pitch = 0.98;
+    // the end's profile (x: + towards the altar), extruded across
+    const endShape = new THREE.Shape();
+    endShape.moveTo(0.3, 0); endShape.lineTo(0.3, 0.6); endShape.quadraticCurveTo(0.31, 0.72, 0.2, 0.74); endShape.lineTo(0.02, 0.75);
+    endShape.quadraticCurveTo(-0.14, 0.8, -0.2, 0.98); endShape.quadraticCurveTo(-0.23, 1.06, -0.3, 1.02); endShape.lineTo(-0.31, 0); endShape.closePath();
+    const endGeo = new THREE.ExtrudeGeometry(endShape, { depth: 0.055, bevelEnabled: true, bevelThickness: 0.008, bevelSize: 0.008, bevelSegments: 1, curveSegments: 6 });
+    endGeo.translate(0, 0, -0.0275);
+    { const uvA = endGeo.attributes.uv; for (let i = 0; i < uvA.count; i++) uvA.setXY(i, uvA.getX(i) * 0.6, uvA.getY(i) * 0.6); }
+    const panelShape = new THREE.Shape(); panelShape.moveTo(0.2, 0.12); panelShape.lineTo(0.2, 0.56); panelShape.lineTo(-0.2, 0.56); panelShape.lineTo(-0.2, 0.12); panelShape.closePath();
+    const panelGeo = new THREE.ExtrudeGeometry(panelShape, { depth: 0.012, bevelEnabled: true, bevelThickness: 0.006, bevelSize: 0.01, bevelSegments: 1 });
     for (let x = XC + 2.0; x < XP - 1.2; x += pitch) {
       if (x > doorBay.xa + 1.6 && x < doorBay.xb - 1.6) continue; // (the aisle from door to door)
       for (const s of [-1, 1]) {
         const zc = s * (zIn + len / 2);
-        add(k.pew, boxGeo(0.42, 0.05, len, 1), x, 0.45, zc);                     // seat
-        add(k.pew, boxGeo(0.05, 0.45, len, 1).rotateZ(0.12), x - 0.24, 0.78, zc); // backrest (a little sloped)
-        add(k.pew, boxGeo(0.08, 0.1, len, 1), x - 0.19, 1.02, zc);                // its top rail
-        add(k.pew, boxGeo(0.14, 0.05, len, 1), x + 0.42, 0.14, zc);              // the kneeler of the pew behind... in front
+        add(k.pew, boxGeo(0.4, 0.045, len, 1), x + 0.01, 0.44, zc);                                     // the seat
+        add(k.pew, new THREE.CylinderGeometry(0.024, 0.024, len, 8).rotateX(Math.PI / 2), x + 0.21, 0.44, zc); // its rounded front
+        add(k.pew, boxGeo(0.035, 0.44, len, 1).rotateZ(0.13), x - 0.22, 0.73, zc);                         // the back, leaning a little
+        add(k.pew, boxGeo(0.05, 0.03, len - 0.1, 1).rotateZ(0.13), x - 0.235, 0.62, zc);                   // its panels' rails
+        add(k.pew, boxGeo(0.05, 0.03, len - 0.1, 1).rotateZ(0.13), x - 0.205, 0.86, zc);
+        add(k.pew, boxGeo(0.09, 0.06, len, 1), x - 0.2, 0.98, zc);                                       // the top rail, where hands rest
+        add(k.pew, boxGeo(0.13, 0.025, len - 0.08, 1), x - 0.31, 0.8, zc);                               // the shelf behind for the missals
+        add(k.pew, boxGeo(0.02, 0.06, len - 0.08, 1), x - 0.37, 0.84, zc);
+        add(k.kneel, boxGeo(0.15, 0.06, len - 0.1, 1), x + 0.47, 0.13, zc);                               // the padded kneeler (for the pew in front of you)
+        add(k.pew, boxGeo(0.17, 0.02, len - 0.06, 1), x + 0.47, 0.095, zc);
         for (const e of [-1, 1]) {
           const ez = zc + e * (len / 2 + 0.03);
-          add(k.pew, boxGeo(0.62, 0.95, 0.06, 1), x - 0.02, 0.475, ez);
-          add(k.pew, new THREE.CylinderGeometry(0.31, 0.31, 0.065, 12, 1, false, 0, Math.PI).rotateX(Math.PI / 2).rotateZ(Math.PI / 2), x - 0.02, 0.95, ez);
+          add(k.pew, endGeo.clone(), x - 0.02, 0, ez);
+          if ((s > 0 && e < 0) || (s < 0 && e > 0)) { const pg = panelGeo.clone(); if (e > 0) pg.rotateY(Math.PI); add(k.pew, pg, x - 0.02, 0, ez + e * 0.034); } // the carved panel on the aisle end
         }
         B.footprint(0.62, len + 0.12, x, zc, 0, 1);
         pews.push({ x, z0: s > 0 ? zIn : -zOut, z1: s > 0 ? zOut : -zIn, s });
         // sit down in it (from the central aisle)
         if (pews.length % 3 === 1) B.interact({ type: 'banco', x: x + 0.5, z: s * (zIn - 0.35), r: 0.85, label: 'Sentarte en el banco', sx: OX + x - 0.04, sz: OZ + s * (zIn + 0.45) });
       }
+    }
+  }
+
+  // ================================================================ the granite plinth along the walls (a metre, its moulding on top)
+  {
+    const plinth = (ax, az, bx, bz, nx, nz, y0 = 0, h = 0.95) => {
+      const L = Math.hypot(bx - ax, bz - az); if (L < 0.2) return;
+      const g = new THREE.PlaneGeometry(L, h); { const uvA = g.attributes.uv; for (let i = 0; i < uvA.count; i++) uvA.setXY(i, uvA.getX(i) * L / 1.6, uvA.getY(i)); }
+      const ry = Math.atan2(nx, nz);
+      g.rotateY(ry); add(k.plinth, g, (ax + bx) / 2 + nx * 0.075, y0 + h / 2, (az + bz) / 2 + nz * 0.075);
+      const m = boxGeo(L, 0.06, 0.06, 1.6); m.rotateY(ry); add(k.granite, m, (ax + bx) / 2 + nx * 0.09, y0 + h + 0.03, (az + bz) / 2 + nz * 0.09);
+    };
+    plinth(X0, -HW, X0, -1.95, 1, 0); plinth(X0, 1.95, X0, HW, 1, 0);
+    for (const s of [-1, 1]) {
+      const zz = s * HW;
+      if (s > 0) { plinth(X0 + 0.07, zz, X0 + 3.15, zz, 0, -s); plinth(X0 + 4.45, zz, XC - 0.95, zz, 0, -s); } else plinth(X0 + 0.07, zz, XC - 0.95, zz, 0, -s);
+      const zo = s * (HW + CD);
+      for (const b of bays) {
+        const x0 = b.xa + PW / 2, x1 = b.xb - PW / 2;
+        if (b === doorBay) { plinth(x0, zo, b.xm - 1.95, zo, 0, -s); plinth(b.xm + 1.95, zo, x1, zo, 0, -s); }
+        else plinth(x0, zo, x1, zo, 0, -s);
+        plinth(x0 - 0.07, s * (HW + 0.95), x0 - 0.07, zo, 1, 0);   // the piers' faces either side of the chapel
+        plinth(x1 + 0.07, s * (HW + 0.95), x1 + 0.07, zo, -1, 0);
+      }
+    }
+    // round the apse, on the presbytery floor (but not across the sacristy's door)
+    const n = 28;
+    for (let i = 0; i < n; i++) {
+      const a0 = -Math.PI / 2 + (i / n) * Math.PI, a1 = -Math.PI / 2 + ((i + 1) / n) * Math.PI, am = (a0 + a1) / 2;
+      if (Math.abs(am - 1.32) < 0.12) continue;
+      const R = AR;
+      plinth(XA + Math.cos(a0) * R, Math.sin(a0) * R, XA + Math.cos(a1) * R, Math.sin(a1) * R, -Math.cos(am), -Math.sin(am), P, 0.8);
     }
   }
 
@@ -870,6 +827,7 @@ export function buildChurch(seed = 7, origin = INTERIOR_ORIGIN) {
   h.origin = { x: OX, z: OZ };
   h.altar = { x: OX + XA - 0.6, z: OZ, y: P };
   h.spots.entrada = B.spots.entrada; h.spots.sur = B.spots.sur;
+  h.cancels = cancels;
   h.beams = makeBeams(h.group, h.windows);
   return h;
 }

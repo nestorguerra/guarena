@@ -288,6 +288,7 @@ export class Activities {
     if (g.interiors && g.interiors.picking) return { label: `Forzando la cerradura… <b>${g.interiors.pickPct} %</b>`, info: true };
     const hd = g.mode === 'normal' && g.interiors && g.interiors.doorNear(p.pos.x, p.pos.z, 1.8);
     if (hd && !this.armedAt(p)) {
+      if (hd.church && hd.shut) return { label: 'Puerta del Evangelio <small>(cerrada: se entra por la de los pies o por la del Mediodía)</small>', info: true };
       if (hd.church) return { label: hd.church === 'sur' ? 'Entrar en Santa María <small>(puerta del Mediodía)</small>' : 'Entrar en la iglesia de Santa María', run: () => g.interiors.enter(hd, { mode: 'visit', spot: hd.church === 'sur' ? 'sur' : 'entrada' }) };
       if (hd.owner) { const nm = g.interiors.doorLabel(hd); return { label: nm === 'Tu casa' ? 'Entrar en tu casa' : `Entrar: ${nm}`, run: () => g.interiors.enter(hd, { mode: 'owner' }) }; }
       if (p.crouch) return { label: `Colarse en ${hd.name} <small>(forzar la cerradura)</small>`, run: () => g.interiors.sneakIn(hd) };

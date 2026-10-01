@@ -786,12 +786,13 @@ export class Interiors {
     };
     // Annie's door: the Catastro entrance point, the pavement spot just in front of it
     addDoor({ x: 111.9, z: -171.4, fx: home.x, fz: home.z }, 'Casa de Annie', 12, 'annie');
-    // Santa María: in by the main door at the foot or by the south one
+    // Santa María: in by the main door at the foot or by the Mediodía one, walking through their open leaves (or with E
+    // before them); the Gospel door stays shut. No marker: the doors themselves are there to be seen
     const lm = g.world && g.world.landmarks && g.world.landmarks.poi;
-    for (const [key, d] of [['oeste', lm && lm.churchWest], ['sur', lm && lm.churchSouth]]) {
+    for (const [key, d] of [['oeste', lm && lm.churchWest], ['sur', lm && lm.churchSouth], ['norte', lm && lm.churchNorth]]) {
       if (!d) continue;
       const spr = new THREE.Sprite(this.iconMat); spr.scale.set(0.6, 0.6, 1); spr.position.set(d.x, 2.7, d.z); spr.visible = false; this.root.add(spr);
-      this.doors.push({ x: d.x, z: d.z, fx: d.f.x, fz: d.f.z, name: 'Iglesia de Santa María', seed: 7, owner: null, church: key, spr });
+      this.doors.push({ x: d.x, z: d.z, fx: d.f.x, fz: d.f.z, name: 'Iglesia de Santa María', seed: 7, owner: null, church: key, spr, leaves: d.door || null, thr: d.thr || { x: d.x, z: d.z }, nx: d.nx ?? 0, nz: d.nz ?? 1, half: d.half || 1.2, shut: key === 'norte' });
     }
     // other houses: residential buildings along walkable streets in town, spread out
     const cands = map.buildings.filter((b) => b.use !== 1 && b.use !== 2 && b.floors <= 2 && b.area > 60 && b.area < 400 && map.inTown(b.c[0], b.c[1]));
@@ -854,12 +855,18 @@ export class Interiors {
     for (const d of this.doors) d.spr.visible = false;
     this.lightsOn(kind !== 'apagon');
     if (g.fm) g.fm.stop(); else g.audio.radioOn(false);
-    g.audio.sfx('door_close', { vol: 0.8 });
+    if (!h.church) g.audio.sfx('door_close', { vol: 0.8 });
     this.visitT = 0;
     if (g.perfGrace) g.perfGrace();
     this.life = vecino ? new HouseLife(g, h, door, mode) : null;
     this.church = h.church ? new ChurchLife(g, h, { randomDesc: () => randomDesc(Math.random), massTime, weekday }) : null;
-    if (h.church) { g.hud.banner && g.hud.banner('Santa María', 'Iglesia parroquial · s. XVI', 'title'); }
+    if (h.church) {
+      g.hud.banner && g.hud.banner('Santa María', 'Iglesia parroquial · s. XVI', 'title');
+      // you have just pushed through the lobby: its padded leaves swing back behind you; the great door shuts beyond
+      const key = spot === 'sur' ? 'sur' : 'oeste', c = (h.cancels || []).find((q) => q.key === key);
+      if (c) { c.lobby.front.set(-0.85, true); c.lobby.front.set(0); c.hold = 1.2; }
+      if (!silent) setTimeout(() => { if (this.house === h && c) g.audio.sfx('church_shut', { x: c.x - c.nx * 2.6, z: c.z - c.nz * 2.6, vol: 0.55 }); }, 450);
+    }
     if (door && door.shop && g.shops) g.shops.onEnter(h, door);        // somebody behind the counter
     if (door && door.owner && g.decor && kind === 'casa') g.decor.enter(h); // your things, where you left them
     if (vecino && mode === 'sneak') g.hud.notify(h.profile ? `Estás dentro. Aquí vive ${h.profile.label}. ${g.gx('Agachado', 'Agachada')} (${g.input.keyText('C', 10, 'Agachar')}) haces menos ruido.` : 'Estás dentro.', 'info', 4);
@@ -873,9 +880,16 @@ export class Interiors {
     if (!this.house) return;
     if (which && d && d.church) d = this.doors.find((q) => q.church === which) || d;
     await this.fade(true);
-    g.audio.sfx('door_open', { vol: 0.8 });
+    if (!(d && d.church)) g.audio.sfx('door_open', { vol: 0.8 });
     this.leave();
-    if (d && d.x !== undefined) {
+    if (d && d.church && d.thr) {
+      // out on the step before the door, its leaves open behind you (they close once you walk away)
+      const ang = Math.atan2(d.nx, d.nz);
+      g.player.spawnAt(d.thr.x + d.nx * 1.0, d.thr.z + d.nz * 1.0, ang);
+      g.cam.yaw = ang + Math.PI;
+      if (d.leaves) d.leaves.set(1, true, d.church !== 'oeste');
+      g.audio.sfx('church_door', { x: d.thr.x, z: d.thr.z, vol: 0.5 });
+    } else if (d && d.x !== undefined) {
       const ang = Math.atan2(d.x - d.fx, d.z - d.fz); // facing away from the facade
       g.player.spawnAt(d.x + Math.sin(ang) * 0.4, d.z + Math.cos(ang) * 0.4, ang);
       g.cam.yaw = ang + Math.PI;
@@ -927,6 +941,7 @@ export class Interiors {
     if (!this.house) {
       // outside: show the nearby door icons (bobbing)
       for (const d of this.doors) {
+        if (d.church) { this.churchDoorStep(d, dt); continue; }
         const on = g.mode === 'normal' && Math.abs(d.x - p.pos.x) < 40 && Math.abs(d.z - p.pos.z) < 40;
         d.spr.visible = on;
         if (on) d.spr.position.y = 2.6 + Math.sin(this.t * 2.2 + d.seed) * 0.08;
@@ -963,6 +978,7 @@ export class Interiors {
     for (const l of this.house.lights) if (l.userData.fire) l.intensity = l.userData.base * (0.75 + Math.sin(this.t * 11) * 0.12 + Math.sin(this.t * 23.7) * 0.08);
     if (this.life) this.life.update(dt);
     if (this.church) {
+      this.lobbyStep(dt);
       this.church.update(dt);
       updateBeams(this.house, g.sky, dt);
       // candle flames flicker
@@ -982,6 +998,50 @@ export class Interiors {
     }
     if (this.hiding) { p.pos.set(this.hiding.hx, p.pos.y, this.hiding.hz); p.vel.set(0, 0, 0); }
     this.visitT += dt;
+  }
+  // Santa María's doors from the street: heavy leaves that open as you come up to them (one leaf for the people going in
+  // and out, and stands ajar in the hours the church is open; both wide when mass is about to begin or lets out). Walk
+  // on through and you are inside
+  churchDoorStep(d, dt) {
+    const g = this.game, p = g.player, D = d.leaves;
+    d.spr.visible = false;
+    if (!D) return;
+    const dx = p.pos.x - d.thr.x, dz = p.pos.z - d.thr.z;
+    if (dx * dx + dz * dz > 140 * 140) return;
+    const out = dx * d.nx + dz * d.nz, lat = dx * d.nz - dz * d.nx; // (lat: across the door, + to its right seen from the street)
+    const onFoot = p.mode === 'foot' && g.mode === 'normal' && !this.house;
+    const near = onFoot && !d.shut && out > -0.5 && out < 5 && Math.abs(lat) < 3.5;
+    let peds = false;
+    if (!d.shut) for (const q of g.peds.list) if ((q.state === 'enter' || q.state === 'exit') && Math.abs(q.x - d.thr.x) + Math.abs(q.z - d.thr.z) < 5) { peds = true; break; }
+    const h = g.sky.hour, m = massTime(h, weekday(g.sky)), crowd = !!m && (m.phase === 'antes' || m.phase === 'salida');
+    const hours = (h >= 9 && h < 13.5) || (h >= 17.5 && h < 21.5);
+    if (d.shut) D.set(0);
+    else if (near || (crowd && d.church === 'oeste')) D.set(1, false, d.church !== 'oeste');
+    else if (peds || hours) D.set(1, false, true);
+    else D.set(0);
+    const ev = D.update(dt);
+    if (ev === 'open') g.audio.sfx('church_door', { x: d.thr.x, z: d.thr.z });
+    else if (ev === 'shut') g.audio.sfx('church_shut', { x: d.thr.x, z: d.thr.z });
+    // walking in: through the clear part of the doorway, towards the inside
+    if (near && !this.entering && out < 1.15) {
+      const [lo, hi] = D.clear(), vin = -(p.vel.x * d.nx + p.vel.z * d.nz);
+      if (hi - lo > 0.75 && lat > lo + 0.2 && lat < hi - 0.2 && vin > 0.45) this.enter(d, { mode: 'visit', spot: d.church === 'sur' ? 'sur' : 'entrada' });
+    }
+  }
+  // inside the church: the lobbies' padded leaves give as you come to them; walk into one and you are out in the street
+  lobbyStep(dt) {
+    const g = this.game, p = g.player, h = this.house;
+    for (const c of h.cancels || []) {
+      const dx = p.pos.x - c.x, dz = p.pos.z - c.z, out = dx * c.nx + dz * c.nz, lat = dx * c.nz - dz * c.nx;
+      const vin = -(p.vel.x * c.nx + p.vel.z * c.nz); // (towards the lobby)
+      const near = p.mode === 'foot' && c.key !== 'norte' && out > -0.2 && out < 1.5 && Math.abs(lat) < c.half + 0.3 && (vin > 0.3 || out < 0.45);
+      c.hold = Math.max(0, (c.hold || 0) - dt);
+      if (!c.hold) c.lobby.front.set(near ? 0.75 : 0);
+      if (c.lobby.front.update(dt) === 'flap' && Math.hypot(dx, dz) < 30) g.audio.sfx('cancel_flap', { x: c.x, z: c.z });
+      if (near && !this.entering && !this.leaving && out < 0.55 && Math.abs(lat) < c.half - 0.2 && vin > 0.45) {
+        this.leaving = true; this.exit(c.key).finally(() => { this.leaving = false; });
+      }
+    }
   }
   // slam a door shut (horror). Picks the door nearest to (x, z) that the player is not standing in; returns it
   slamNear(x, z, maxD = 9) {
