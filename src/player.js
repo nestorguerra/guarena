@@ -1,10 +1,12 @@
 // Player controller (on foot & driving, entering/exiting & carjacking, melee) and the third-person camera rig.
 import * as THREE from 'three';
 import { STYLE } from './style.js';
-import { clamp, lerp, damp, dampAngle, wrapAngle, TAU } from './util.js';
+import { clamp, lerp, damp, dampAngle, wrapAngle, smoothstep, polyNearest, polySample, TAU } from './util.js';
 import { PERK, setPerk } from './perks.js';
 
 const WALK = 1.7, JOG = 3.6, SPRINT = 6.4, CROUCH = 1.15;
+// on foot you walk at everybody's pace; keep going for RUN_AFTER seconds and you break into a run; Shift sprints
+const PACE = 1.45, RUN_AFTER = 7;
 
 export class Player {
   constructor(game, character) {
@@ -78,17 +80,22 @@ export class Player {
     let target = 0;
     let moveYaw = this.heading;
     if (strafe) this.heading = dampAngle(this.heading, camYaw, g.cam.fp ? 40 : 22, dt); // face where the crosshair points
+    // how long you have kept walking (a moment's let-go to change keys does not count): after RUN_AFTER s, a run
+    if (mag > 0.5 && !aiming && !this.crouch && !this.carry) { this.holdT = (this.holdT || 0) + dt; this.letT = 0; }
+    else { this.letT = (this.letT || 0) + dt; if (this.letT > 0.3 || aiming || this.crouch) this.holdT = 0; }
     if (mag > 0.05) {
       // camera-relative direction: forward = camera yaw, right = (-cos, sin)
       const fx = Math.sin(camYaw), fz = Math.cos(camYaw);
       const rx = -fz, rz = fx;
       const dx = fx * my + rx * mx, dz = fz * my + rz * mx;
-      const want = Math.atan2(dx, dz);
+      let want = Math.atan2(dx, dz);
+      if (!strafe && !g.interior && this.grounded) want = this.alongStreet(want);
       moveYaw = want;
       this.turnRate = strafe ? 0 : wrapAngle(want - this.heading);
       if (!strafe) this.heading = dampAngle(this.heading, want, 12 * PERK.turn, dt);
       const sprint = input.sprint && this.stamina > 0.05 && !aiming && !this.crouch && !this.carry;
-      target = this.crouch ? CROUCH * Math.max(0.4, mag) : aiming ? WALK * 1.25 * Math.max(0.5, mag) : (sprint ? SPRINT * PERK.run : mag < 0.5 ? WALK : JOG * PERK.run) * (mag < 0.5 ? 1 : mag);
+      const pace = lerp(PACE, JOG * PERK.run, smoothstep(RUN_AFTER, RUN_AFTER + 0.9, this.holdT || 0));
+      target = this.crouch ? CROUCH * Math.max(0.4, mag) : aiming ? WALK * 1.25 * Math.max(0.5, mag) : sprint ? SPRINT * PERK.run * Math.max(0.6, mag) : mag < 0.5 ? PACE * 0.8 : pace * mag;
       if (this.carry) target = Math.min(target, 2.4); // a box or a tray in the hands
       if (sprint) this.stamina = Math.max(0, this.stamina - dt * 0.12 * PERK.stamina); else this.stamina = Math.min(1, this.stamina + dt * 0.2 * PERK.regen);
     } else { this.turnRate = 0; this.stamina = Math.min(1, this.stamina + dt * 0.3 * PERK.regen); }
@@ -143,6 +150,30 @@ export class Player {
     this.char.update(dt, ns, { grounded: this.grounded, vy: this.vel.y, turn: this.turnRate, fidget: bare && !g.cam.fp && !this.crouch && !talking, crouch: this.crouch, moveDir, talking });
     if (g.weapons) g.weapons.postPose(this, dt); // gun in both hands (after the body is posed)
     this.syncChar();
+  }
+
+  // walking a street, the way you go settles on the street's own direction (a diagonal or a curving one too), unless
+  // you clearly mean another way: within ~40° of it you follow it, the nearer the more; crossing it stays yours
+  alongStreet(want) {
+    const map = this.game.map;
+    if (!map.edgesNear) return want;
+    const x = this.pos.x, z = this.pos.z, t = this._st || (this._st = {});
+    let best = null, bs = -1e9;
+    for (const id of map.edgesNear(x, z, 10)) {
+      const e = map.edges[id];
+      if (!(e.walk || e.drive) || e.blocked || e.len < 4) continue;
+      const q = polyNearest(e.pts, e.cum, x, z);
+      const reach = Math.max(e.facade || 0, (e.w || 3) / 2 + (e.sw || 0) + 1.2); // its carriageway and pavements
+      if (q.d > reach) continue;
+      polySample(e.pts, e.cum, q.s, t);
+      const ty = Math.atan2(t.dx, t.dz);
+      let d = Math.abs(wrapAngle(ty - want)), back = false;
+      if (d > Math.PI / 2) { d = Math.PI - d; back = true; }    // either way along it
+      const sc = Math.cos(d) - q.d / (reach * 5);
+      if (d < 0.72 && sc > bs) { bs = sc; best = { yaw: back ? ty + Math.PI : ty, d }; }
+    }
+    if (!best) return want;
+    return want + smoothstep(0.72, 0.28, best.d) * wrapAngle(best.yaw - want);
   }
 
   syncChar() {
@@ -596,6 +627,21 @@ export class CameraRig {
       tx += rx * so; tz += rz * so;
       // gentle auto-follow when running and not looking
       if (!aim && Math.abs(ldx) < 0.5 && Math.hypot(p.vel.x, p.vel.z) > 3) this.yaw = dampAngle(this.yaw, p.heading + Math.PI, 0.6, dt);
+      // (the anime look) standing still a while, hands off the keys: the camera drifts slowly round you, a little back
+      // and up, and the HUD fades — a moment to look at the town. Any key or a look brings it all back
+      if (an) {
+        const still = !aim && Math.hypot(p.vel.x, p.vel.z) < 0.15 && Math.abs(ldx) + Math.abs(ldy) < 0.5 && Math.hypot(input.moveX, input.moveY) < 0.05 && p.mode !== 'dead';
+        this.idleT = still ? (this.idleT || 0) + dt : 0;
+        this.idleK = damp(this.idleK || 0, smoothstep(9, 13, this.idleT), this.idleT > 0 ? 0.8 : 4, dt);
+        if (this.idleK > 0.01) {
+          this.yaw += dt * 0.075 * this.idleK;
+          this.pitch = damp(this.pitch, -0.3, 0.35 * this.idleK, dt);
+          dist *= 1 + 0.6 * this.idleK;
+          ty += 0.25 * this.idleK;
+        }
+        const idle = this.idleK > 0.5;
+        if (idle !== this.idleShown) { this.idleShown = idle; document.body.classList.toggle('contemplar', idle); }
+      }
     }
     this.fov = damp(this.fov, fovT, fovT < 55 ? 9 : 3, dt);
     // camera position on a sphere behind the target (yaw points from target to camera)

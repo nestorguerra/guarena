@@ -42,6 +42,15 @@ export function installToonChunks() {
   // the sky's light (IBL) mostly from above too, whichever way the surface faces
   C.lights_fragment_maps = swap(C.lights_fragment_maps, 'iblIrradiance += getIBLIrradiance( geometryNormal );', 'iblIrradiance += getIBLIrradiance( toonAmbN( geometryNormal ) );', 'ibl');
 }
+// the lens of the last pass (a fish-eye, like the reference's little planet: the horizon and the roofs bow): where a
+// point of the rendered picture (uv 0..1) ends up on the screen — for what is drawn over it (speech bubbles, marks)
+export const LENS = { k: 0.2 };
+export function lensMap(u, v) {
+  const sx = u - 0.5, sy = v - 0.5;
+  let ox = sx, oy = sy;
+  for (let i = 0; i < 4; i++) { const f = 1 - LENS.k * (0.5 - (ox * ox + oy * oy)); ox = sx / f; oy = sy / f; }
+  return [0.5 + ox, 0.5 + oy];
+}
 
 // ------------------------------------------------------------ textures: repainted as flat colour with ink lines.
 // Each layer of an RGBA texture array (sRGB bytes) is smoothed (the grain of plaster, asphalt or stone goes), its
@@ -169,7 +178,7 @@ precision highp float;
 uniform sampler2D tColor; uniform sampler2D tDepth;
 uniform vec2 uRes; uniform float uNear; uniform float uFar; uniform float uLine; uniform float uExposure;
 uniform float uFadeN; uniform float uFadeF; uniform float uNight; uniform float uTime; uniform float uInkK;
-uniform vec3 uLift; uniform float uSat; uniform float uDebug;
+uniform vec3 uLift; uniform float uSat; uniform float uDebug; uniform float uBarrel; uniform float uVig;
 varying vec2 vUv;
 float h21(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float vn(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
@@ -181,6 +190,10 @@ void main() {
   vec2 px = 1.0 / uRes;
   // a pen, not a ruler: the lines wander a pixel here and there and swell and thin along their length. (The depth is
   // read texel by texel, so the neighbourhood stays symmetric on whole texels — else every slope reads as a crease.)
+  // a wide lens: the middle of the picture a touch bigger, its edges drawn in (a gentle fish-eye)
+  vec2 st = vUv - 0.5;
+  vec2 vUvL = 0.5 + st * (1.0 - uBarrel * (0.5 - dot(st, st)));
+  #define vUv vUvL
   vec2 q = vUv * uRes / 34.0;
   vec2 wob = (vec2(vn(q + 3.7), vn(q + 11.3)) - 0.5) * 1.7;
   float thick = 0.8 + 0.45 * vn(vUv * uRes / 23.0 + 5.1);
@@ -228,6 +241,7 @@ void main() {
   vec3 ink = mix(c * vec3(0.16, 0.18, 0.22), vec3(0.018, 0.02, 0.03), 0.84);   // black, a breath of the colour
   ink = mix(ink, c * 0.5, uNight * 0.3);
   c = mix(c, ink, clamp(e * uInkK, 0.0, 1.0));
+  c *= 1.0 - uVig * smoothstep(0.35, 0.95, length(st * vec2(1.0, uRes.y / uRes.x) * 1.5)); // (and the corners a little darker)
   gl_FragColor = vec4(srgb(clamp(c, 0.0, 1.0)), 1.0);
 }`;
 export class ToonPipeline {
@@ -243,7 +257,7 @@ export class ToonPipeline {
       tColor: { value: this.rt.texture }, tDepth: { value: dt }, uRes: { value: new THREE.Vector2(1, 1) },
       uNear: { value: 0.25 }, uFar: { value: 4000 }, uLine: { value: 1 }, uExposure: { value: 1 },
       uFadeN: { value: 420 }, uFadeF: { value: 1400 }, uNight: { value: 0 }, uTime: { value: 0 }, uInkK: { value: 1.0 },
-      uLift: { value: new THREE.Color(0.035, 0.05, 0.06) }, uSat: { value: 0.96 }, uDebug: { value: 0 },
+      uLift: { value: new THREE.Color(0.035, 0.05, 0.06) }, uSat: { value: 0.96 }, uDebug: { value: 0 }, uBarrel: { value: LENS.k }, uVig: { value: 0.16 },
     };
     this.mat = new THREE.ShaderMaterial({ uniforms: this.u, vertexShader: POST_VS, fragmentShader: POST_FS, depthTest: false, depthWrite: false, toneMapped: false });
     this.quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.mat);

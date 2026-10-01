@@ -1,15 +1,22 @@
-// Pedestrians of Guareña: walk the sidewalks of the real streets, chat in the plazas, sit on benches,
-// flee from trouble, get knocked down (and get back up), and speak castúo.
+// Pedestrians of Guareña: each one is going somewhere that suits the hour and who they are (npcmind.js), along the
+// sidewalks of the real streets; they cross looking out for cars, keep to the right when they meet someone, stop to
+// greet a neighbour, go in at the door they were heading for (and others come out of theirs); they chat in the plazas,
+// at their doors and on the benches — real little conversations — flee from trouble, get knocked down (and get back
+// up), and speak castúo.
 import * as THREE from 'three';
 import { randomDesc } from './characters.js';
 import { polySample, clamp, lerp, dampAngle, wrapAngle, mulberry32, hash1 } from './util.js';
 import { endNode } from './traffic.js';
 import { Dogs } from './dogs.js';
+import { STYLE } from './style.js';
+import { lensMap } from './toon.js';
+import { Places, routeBetween, personaOf, Chat, greetLine, errandLine, PASSING, BUSY, ANNOYED, ANNOYED_SAT, WARY, AFTER_DARK, FOLLOWED, CLOSE, BYE, partOfDay, weekday, massTime, fillLine } from './npcmind.js';
 
 export const FRASES = {
   bump: ['¡Chacho, ten cuidao!', '¡Mira por dónde vas!', '¡Coile, qué susto!', '¡Ay, madre!', '¡Que me escachas!', '¡Acho, que no estás {solo|sola}!'],
   punched: ['¡Pero qué haces, {zagal|zagala}!', '¡Como te pille, estás aviao!', '¡Socorro!', '¡Llamad a la Guardia Civil!', '¡Tú no eres de aquí!'],
-  car: ['¡Que me atropellas!', '¡Frena, animal!', '¡Por la acera no!', '¡Qué {cansino|cansina} eres!'],
+  car: ['¡Que me atropellas!', '¡Frena, animal!', '¡Eh, cuidado con el coche!', '¡Más despacio, hombre!'],
+  carWalk: ['¡Por la acera no!', '¡Que esto es la acera, animal!', '¡Que me atropellas!'],
   greet: ['¡Buenas!', '¿Qué pasa, piporro?', '¡Acho, qué caló jace!', '¿Un vasino de pitarra?', 'Espérate una mijina…', '¡Menuda sapalipanda hay en la plaza!', 'Ponme unos chochos, anda.', '¡A ver!', '¿Has visto la torre de Santa María?', 'Esto está más tranquilo que la siesta.'],
   flee: ['¡Corred!', '¡Que viene!', '¡Ay, Dios mío!', '¡Aligera, que no llegamos!'],
   carjack: ['¡Mi coche! ¡Al ladrón!', '¡Que me lo roban!', '¡Ladrón, sinvergüenza!'],
@@ -63,6 +70,30 @@ export class Peds {
     this.marks = [];
     this.speechRoot = game.ui.speech;
     this.dogs = new Dogs(game);
+    this.walkSet = new Set(this.walkEdges);
+    this.walkOk = (e) => this.walkSet.has(e) || (e.walk && !e.blocked && !e.dirt && e.cls !== 'track' && e.len > 3);
+    this.chats = [];      // conversations going on: plaza groups, doors, benches, couples out walking
+    this.later = [];      // lines said a moment after another (a greeting answered)
+    this.trouble = null;  // the last thing that happened in the street (people talk about it)
+    this.places = null;   // where people go (made on the first update: the shops and doors are set up after us)
+    this.churchOut = 0;
+  }
+  get now() { return this.game.time || performance.now() / 1000; }
+  // what a conversation here and now can be about
+  ctx(where, members) {
+    const g = this.game, h = g.sky.hour, wd = weekday(g.sky), m = massTime(h, wd);
+    const needs = [];
+    if (g.mercadillo && g.mercadillo.marketDay) needs.push('mercado');
+    if (m && m.phase !== 'durante') needs.push('misa');
+    const t = this.trouble, a = members && members[0];
+    if (t && this.now - t.t < 240 && (!a || Math.hypot(a.x - t.x, a.z - t.z) < 260)) needs.push('jaleo');
+    return { part: partOfDay(h), where, wd, needs, who: a && a.persona ? a.persona.age : 'adulto', n: members ? members.length : 2 };
+  }
+  startChat(members, where, opts = {}) {
+    const c = new Chat(this, members, this.ctx(where, members), opts);
+    for (const m of members) m.chat = c;
+    this.chats.push(c);
+    return c;
   }
 
   targetCount() {
@@ -79,16 +110,23 @@ export class Peds {
   }
 
   update(dt) {
-    const p = this.game.player.pos;
+    const g = this.game, p = g.player.pos;
+    if (!this.places && g.world && g.shops) this.places = new Places(g);
     this.spawnT -= dt;
     if (this.spawnT <= 0) {
       this.spawnT = 0.25;
-      if (this.list.filter((x) => !x.fixed).length < this.targetCount()) this.trySpawn(p);
+      if (this.list.filter((x) => !x.fixed).length < this.targetCount()) { if (!(Math.random() < 0.4 && this.spawnFromDoor(p))) this.trySpawn(p); }
       this.ensureBenchSitters(p);
       this.ensurePlazaGroups(p);
       this.ensureFresco(p);
+      this.churchCrowd(p);
     }
     this.updateFresco(dt);
+    // the conversations, and the answers that come a moment later
+    const near = (m) => Math.hypot(m.x - p.x, m.z - p.z) < 14 && !g.player.vehicle;
+    for (let i = this.chats.length - 1; i >= 0; i--) { const c = this.chats[i]; c.update(dt, near); if (c.done) this.chats.splice(i, 1); }
+    for (let i = this.later.length - 1; i >= 0; i--) { const l = this.later[i]; l.t -= dt; if (l.t <= 0) { this.later.splice(i, 1); if (this.list.includes(l.ped) && l.ped.state !== 'flee' && l.ped.state !== 'dead') this.say(l.ped, l.text); } }
+    this.passing(dt, p);
     const cam = this.game.camera.position;
     for (let i = this.list.length - 1; i >= 0; i--) {
       const ped = this.list[i];
@@ -97,18 +135,43 @@ export class Peds {
         if (d > 90 || (ped.deadT > 45 && !this.game.traffic.inView(ped.x, ped.z, d))) { this.despawn(ped, i); continue; }
       } else if (d > (ped.fixed ? 110 : 150) && ped.state !== 'lie' || (ped.state === 'lie' && d > 200)) { this.despawn(ped, i); continue; }
       this.updatePed(ped, dt, d);
+      if (ped.gone) { if (d < 12) g.audio.sfx('door_close', { x: ped.x, z: ped.z, vol: 0.25 }); this.despawn(ped, i); continue; } // in at their door
       this.glance(ped, dt, d);
       // animation LOD: far peds update less often
       const cd = Math.hypot(ped.x - cam.x, ped.z - cam.z);
       ped.char.object.visible = cd < 130;
       ped.animAcc += dt;
-      if (cd < 45 || ped.animAcc > 0.1) { ped.char.update(ped.animAcc, ped.speed, { turn: ped.turn || 0 }); ped.animAcc = 0; }
+      if (cd < 45 || ped.animAcc > 0.1) { ped.char.update(ped.animAcc, ped.speed, { turn: ped.turn || 0, fidget: !ped.chat && !ped.fixed }); ped.animAcc = 0; }
       const o = ped.char.object;
       if (!ped.char.rag) { o.position.set(ped.x, ped.y, ped.z); o.rotation.set(0, ped.heading, 0); } // (a ragdoll places itself)
       if (ped.group && ped.state === 'idle') ped.speed = 0;
     }
+    this.separate();
     this.dogs.update(dt);
     this.updateSpeech(dt);
+  }
+  // nobody walks through anybody: two who end up closer than their shoulders allow are eased apart (the one on the
+  // move gives way to the one standing; sitters and the fallen do not move)
+  separate() {
+    const L = this.list, R = 0.58;
+    const mob = (q) => q.state === 'walk' || q.state === 'idle' || q.state === 'stroll' || q.state === 'cross' || q.state === 'follow' || q.state === 'window' || q.state === 'chat' || q.state === 'flee' || q.state === 'call';
+    for (let i = 0; i < L.length; i++) {
+      const a = L[i];
+      if (!mob(a)) continue;
+      for (let j = i + 1; j < L.length; j++) {
+        const b = L[j];
+        if (!mob(b) && b.state !== 'sit') continue;
+        const dx = b.x - a.x, dz = b.z - a.z;
+        if (dx > R || dx < -R || dz > R || dz < -R) continue;
+        const d = Math.hypot(dx, dz);
+        if (d >= R || d < 1e-4) continue;
+        const push = R - d, ux = dx / d, uz = dz / d;
+        const bm = mob(b), am = 1;
+        const wa = bm ? (a.speed >= b.speed ? 0.65 : 0.35) : 1, wb = bm ? 1 - wa : 0;
+        a.x -= ux * push * wa * am; a.z -= uz * push * wa * am;
+        if (wb) { b.x += ux * push * wb; b.z += uz * push * wb; }
+      }
+    }
   }
 
   trySpawn(p) {
@@ -125,20 +188,23 @@ export class Peds {
       if (this.map.buildingAt(pt.x, pt.z)) continue;
       const ped = this.spawnAt(pt.x, pt.z);
       ped.edge = e; ped.side = side; ped.dir = Math.random() < 0.5 ? 1 : -1; ped.s = s;
-      ped.state = Math.random() < 0.12 ? 'idle' : 'walk';
+      ped.state = 'walk';
       ped.idleT = 3 + Math.random() * 10;
-      // a few are out walking the dog (more in the evening)
+      this.plan(ped);
+      // a few are out walking the dog (more in the evening); some walk with someone
       const h = this.game.sky.hour;
       if (Math.random() < (h > 19 || h < 10 ? 0.22 : 0.1) && this.dogs.list.length < 7) this.dogs.attach(ped);
+      else if (Math.random() < (h > 18 && h < 22.5 ? 0.3 : 0.14)) this.companion(ped);
       return;
     }
   }
 
   spawnAt(x, z, desc) {
     const char = this.makeChar(desc);
+    const persona = personaOf(char.desc, Math.random());
     const ped = {
-      char, x, z, y: 0, heading: Math.random() * Math.PI * 2, speed: 0, state: 'walk', t: 0,
-      walkSpeed: (char.desc.elderly ? 0.85 : 1.25) + Math.random() * 0.3, hp: 100, animAcc: 0,
+      char, x, z, y: 0, heading: Math.random() * Math.PI * 2, speed: 0, state: 'walk', t: 0, persona, seedT: Math.random() * 3,
+      walkSpeed: (char.desc.elderly ? 0.85 : 1.2) + persona.hurry * 0.35 + Math.random() * 0.12, hp: 100, animAcc: 0,
       edge: null, side: 1, dir: 1, s: 0, fear: 0, talkT: 0, fixed: false,
       tough: !char.desc.elderly && (char.desc.gender === 'm' ? Math.random() < 0.3 : Math.random() < 0.08),
       cash: Math.random() < 0.8 ? 5 + Math.floor(Math.random() * 55) : 0, talks: 0,
@@ -149,11 +215,15 @@ export class Peds {
   }
   despawn(ped, i) {
     if (ped.call) this.endCall(ped, ped.call.started || ped.call.delay <= 0);
+    if (ped.follower && ped.follower.leader === ped) ped.follower.leader = null;
+    if (ped.leader && ped.leader.follower === ped) ped.leader.follower = null;
+    if (ped.chat) { ped.chat.members = ped.chat.members.filter((m) => m !== ped); ped.chat = null; }
+    if (ped.group && ped.group.members) ped.group.members = ped.group.members.filter((m) => m !== ped);
     if (ped.dog) this.dogs.detach(ped);
     this.game.scene.remove(ped.char.object);
     ped.char.dispose();
-    if (ped.bench) ped.bench.used = false;
-    if (ped.group) ped.group.used = false;
+    if (ped.bench && !this.list.some((o) => o !== ped && o.bench === ped.bench)) ped.bench.used = false;
+    if (ped.group && !(ped.group.members && ped.group.members.length)) ped.group.used = false;
     if (ped.fresco) this.leaveFresco(ped);
     this.list.splice(i ?? this.list.indexOf(ped), 1);
   }
@@ -234,30 +304,20 @@ export class Peds {
       const sitting = grp.members.filter((m) => m.state === 'sit');
       if (!sitting.length) continue;
       const dP = Math.hypot(grp.spot.x - pl.x, grp.spot.z - pl.z);
-      grp.talkT -= dt;
-      if (grp.talkT <= 0) {
-        // take turns: one speaks, the others turn their heads to her
-        const prev = grp.speaker;
-        grp.speaker = sitting[Math.floor(Math.random() * sitting.length)];
-        if (prev && prev.char) prev.char.speaking = false;
-        grp.speaker.char.speaking = true;
-        grp.talkT = 2.5 + Math.random() * 4;
-        if (dP < 11 && !g.player.vehicle && Math.random() < 0.8) this.say(grp.speaker, pick(grp.part === 'mañana' ? FRASES.frescoMorning.concat(FRASES.fresco.slice(0, 6)) : FRASES.fresco));
-      }
+      // they talk among themselves: one topic at a time, answering each other (npcmind.js TALKS)
+      if (sitting.length >= 2 && (!grp.chat || grp.chat.done)) grp.chat = this.startChat(sitting.slice(), 'puerta', { loop: true });
       grp.greetT -= dt;
       const near = dP < 5.5 && !g.player.vehicle;
       if (near && grp.greetT <= 0) {
+        // whoever sees you coming says hello, as suits the hour
         const m = sitting[Math.floor(Math.random() * sitting.length)];
         const female = g.player.char && g.player.char.desc && g.player.char.desc.gender === 'f';
-        this.say(m, pick(female ? FRASES.frescoGreetF : FRASES.frescoGreet));
-        grp.greetT = 14 + Math.random() * 10;
+        const h = g.sky.hour;
+        this.say(m, h < 13.5 ? greetLine(m.persona, h) : pick(female ? FRASES.frescoGreetF : FRASES.frescoGreet));
+        grp.greetT = 30 + Math.random() * 20;
+        if (grp.chat) grp.chat.t = Math.max(grp.chat.t, 2.2); // (and the conversation waits a moment)
       }
-      for (const m of sitting) {
-        if (near && m !== grp.speaker) m.char.lookAt(this._pv || (this._pv = new THREE.Vector3()).set(pl.x, 1.6, pl.z));
-        else if (grp.speaker && m !== grp.speaker) m.char.lookAt((m._lk || (m._lk = new THREE.Vector3())).set(grp.speaker.x, 1.2, grp.speaker.z));
-        else if (m === grp.speaker && sitting.length > 1) { const o = sitting[(sitting.indexOf(m) + 1) % sitting.length]; m.char.lookAt((m._lk || (m._lk = new THREE.Vector3())).set(o.x, 1.2, o.z)); }
-        else m.char.lookAt(null);
-      }
+      if (near) for (const m of sitting) if (!grp.chat || m !== grp.chat.speaker) m.char.lookAt(this._pv || (this._pv = new THREE.Vector3()).set(pl.x, 1.6, pl.z));
     }
   }
 
@@ -284,16 +344,50 @@ export class Peds {
       const d = Math.hypot(gs.x - p.x, gs.z - p.z);
       if (d > 75 || d < 22) continue;
       gs.used = true;
+      gs.members = [];
       const n = 2 + Math.floor(Math.random() * 2);
       for (let k = 0; k < n; k++) {
         const a = (k / n) * Math.PI * 2 + Math.random() * 0.4;
         const ped = this.spawnAt(gs.x + Math.cos(a) * 0.75, gs.z + Math.sin(a) * 0.75);
-        ped.fixed = true; ped.group = gs;
-        ped.state = 'idle'; ped.idleT = 1e9;
-        ped.heading = Math.atan2(gs.x - ped.x, gs.z - ped.z);
-        ped.char.setBase('talk');
+        this.joinGroup(ped, gs, a);
+      }
+      gs.chat = this.startChat(gs.members.slice(), 'plaza', { loop: true });
+    }
+    // now and then someone says goodbye and walks off; the last one does not stay talking to the air
+    for (const gs of this.groupSpots) {
+      if (!gs.members || !gs.members.length) continue;
+      for (const m of gs.members.slice()) {
+        m.stayT -= 0.25;
+        if (m.stayT > 0 && gs.members.length > 1) continue;
+        if (m.state !== 'idle') continue;
+        this.leaveGroup(m, gs);
+        break;
       }
     }
+  }
+  joinGroup(ped, gs, a = Math.random() * Math.PI * 2) {
+    ped.fixed = true; ped.group = gs;
+    ped.state = 'idle'; ped.idleT = 1e9;
+    ped.x = gs.x + Math.cos(a) * 0.75; ped.z = gs.z + Math.sin(a) * 0.75;
+    ped.heading = Math.atan2(gs.x - ped.x, gs.z - ped.z);
+    ped.char.setBase('talk');
+    ped.stayT = 90 + Math.random() * 240;
+    (gs.members || (gs.members = [])).push(ped);
+    if (gs.chat && !gs.chat.done) { gs.chat.members.push(ped); ped.chat = gs.chat; }
+  }
+  leaveGroup(ped, gs) {
+    const others = gs.members.filter((m) => m !== ped);
+    const bye = pick(BYE);
+    this.say(ped, bye[0]);
+    if (others[0]) this.later.push({ ped: others[0], t: 1.4, text: fillLine(bye[1], others[0].persona, ped.persona) });
+    gs.members = others;
+    if (gs.chat) { gs.chat.members = gs.chat.members.filter((m) => m !== ped); gs.chat.t = Math.max(gs.chat.t, 3); }
+    ped.chat = null; ped.group = null; ped.fixed = false;
+    ped.char.setBase(null); ped.char.speaking = false; ped.char.lookAt(null);
+    this.rejoin(ped);
+    ped.state = 'walk';
+    this.plan(ped);
+    if (!others.length) { gs.used = false; gs.chat = null; }
   }
 
   // benches in the Plaza de España & parks: elderly folks sitting (very Guareña)
@@ -311,12 +405,26 @@ export class Peds {
       desc.elderly = rnd() < 0.7;
       if (desc.elderly) { desc.hair = 6; if (desc.gender === 'm') { desc.accessory = 'boina'; desc.accessoryColor = '#2a2a2a'; } }
       desc.cane = false;
-      const fx = Math.sin(b.ang), fz = Math.cos(b.ang);
-      const ped = this.spawnAt(b.x + fx * 0.12, b.z + fz * 0.12, desc);
-      ped.fixed = true; ped.bench = b;
-      ped.state = 'sit'; ped.heading = b.ang;
-      ped.char.setBase('sit');
+      const fx = Math.sin(b.ang), fz = Math.cos(b.ang), lx = fz, lz = -fx;
+      const two = rnd() < 0.4;
+      const sitters = [];
+      for (let k = 0; k < (two ? 2 : 1); k++) {
+        const o = two ? (k ? -0.42 : 0.42) : 0;
+        const dk = k ? randomDesc(rnd) : desc;
+        if (k) { dk.elderly = desc.elderly && rnd() < 0.8; if (dk.elderly) { dk.hair = 6; if (dk.gender === 'm') { dk.accessory = 'boina'; dk.accessoryColor = '#2a2a2a'; } } dk.cane = false; }
+        const ped = this.spawnAt(b.x + fx * 0.12 + lx * o, b.z + fz * 0.12 + lz * o, dk);
+        ped.fixed = true; ped.bench = b;
+        ped.state = 'sit'; ped.heading = b.ang;
+        ped.char.setBase(two ? 'sitTalk' : 'sit');
+        sitters.push(ped);
+      }
+      if (two) this.startChat(sitters, 'banco', { loop: true });
     }
+  }
+  freeBench(x, z, r) {
+    let best = null, bd = r;
+    for (const b of this.benches) { if (b.used) continue; const d = Math.hypot(b.x - x, b.z - z); if (d < bd) { bd = d; best = b; } }
+    return best;
   }
 
   sidePoint(e, s, side, out) {
@@ -334,18 +442,122 @@ export class Peds {
       case 'walk': {
         const e = ped.edge;
         if (!e) { ped.state = 'idle'; break; }
-        ped.s += ped.dir * ped.walkSpeed * dt;
+        const sp = ped.walkSpeed * (ped.slowK ?? 1);
+        ped.s += ped.dir * sp * dt;
+        const last = ped.route && ped.ri === ped.route.length - 1;
+        // on the street of the place they are going to: the right side of it first (crossing where it is clear)
+        if (last && ped.goal && ped.side !== ped.goal.side && Math.abs(ped.s - ped.goal.s) < 16) { this.startCross(ped); break; }
+        if (last && ped.goal && (ped.dir > 0 ? ped.s >= ped.goal.s - 0.3 : ped.s <= ped.goal.s + 0.3)) { this.arrive(ped); break; }
         if (ped.s < 0 || ped.s > e.len) this.nextEdge(ped);
         const tgt = this.sidePoint(ped.edge, ped.s + ped.dir * 1.5, ped.side, this.tmp);
-        this.steerTo(ped, tgt.x, tgt.z, ped.walkSpeed, dt);
-        if (Math.random() < dt * 0.02) { ped.state = 'idle'; ped.idleT = 2 + Math.random() * 6; }
+        // keep to the right of whoever comes the other way, round whoever stands in the way, overtake the slow
+        const lat = this.avoid(ped, dt);
+        if (lat) { const tx = this.tmp.dx * ped.dir, tz = this.tmp.dz * ped.dir; tgt.x += -tz * lat; tgt.z += tx * lat; }
+        this.steerTo(ped, tgt.x, tgt.z, sp, dt);
+        // someone stops to read a message now and then; a wanderer stops to look about
+        if (ped.persona.age !== 'mayor' && ped.t > 30 && Math.random() < dt * 0.003) { ped.state = 'idle'; ped.idleT = 3 + Math.random() * 4; ped.char.setBase('phone'); ped.t = 0; }
+        else if (!ped.goal && Math.random() < dt * 0.02) { ped.state = 'idle'; ped.idleT = 2 + Math.random() * 6; }
         break;
       }
       case 'idle': {
         ped.speed = lerp(ped.speed, 0, 1 - Math.exp(-8 * dt));
         ped.idleT -= dt;
-        if (!ped.group && !ped.char.base && Math.random() < dt * 0.3) ped.char.setBase(Math.random() < 0.5 ? 'talk' : 'phone');
-        if (ped.idleT <= 0) { ped.char.setBase(null); ped.state = ped.edge ? 'walk' : 'idle'; ped.idleT = 5; }
+        if (ped.idleT <= 0) {
+          if (!ped.group) ped.char.setBase(null);
+          if (ped.resume === 'window' || ped.resume === 'stroll') { ped.state = ped.resume; ped.resume = null; break; }
+          ped.resume = null;
+          ped.state = ped.edge ? 'walk' : 'idle'; ped.idleT = 5;
+          if (ped.state === 'walk' && !ped.route) this.plan(ped);
+        }
+        break;
+      }
+      case 'exit': {
+        // out of their door and onto the pavement
+        const t = ped.exitTo;
+        if (!t || Math.hypot(t.x - ped.x, t.z - ped.z) < 0.4) { ped.state = 'walk'; ped.exitTo = null; if (!ped.route) this.plan(ped); break; }
+        this.steerTo(ped, t.x, t.z, ped.walkSpeed * 0.8, dt);
+        break;
+      }
+      case 'cross': {
+        // at the kerb: a look one way and the other, wait for the cars, then across
+        const c = ped.cross, e = ped.edge;
+        if (!c || !e) { ped.state = 'walk'; break; }
+        if (c.phase === 'look') {
+          ped.speed = lerp(ped.speed, 0, 1 - Math.exp(-8 * dt));
+          c.t -= dt;
+          const t = polySample(e.pts, e.cum, clamp(c.s + (Math.floor(c.t * 1.3) % 2 ? 9 : -9), 0, e.len), this.tmp);
+          ped.char.lookAt((ped._lc || (ped._lc = new THREE.Vector3())).set(t.x, 1.0, t.z));
+          if (c.t <= 0 && (this.clearToCross(ped) || c.t < -14)) { c.phase = 'go'; ped.char.lookAt(null); }
+        } else {
+          const t = this.sidePoint(e, c.s + ped.dir * 1.2, c.to, this.tmp);
+          this.steerTo(ped, t.x, t.z, ped.walkSpeed * 1.15, dt);
+          if (Math.hypot(t.x - ped.x, t.z - ped.z) < 0.5) { ped.side = c.to; ped.walkSide = ped.side * ped.dir; ped.s = c.s + ped.dir * 1.2; ped.cross = null; ped.state = 'walk'; }
+        }
+        break;
+      }
+      case 'enter': {
+        // in at the door they came for (the street side of it, then the threshold)
+        const gl = ped.goal;
+        if (!gl) { ped.state = 'idle'; ped.idleT = 3; break; }
+        const tx = ped.enterPhase ? gl.fx : gl.x, tz = ped.enterPhase ? gl.fz : gl.z;
+        this.steerTo(ped, tx, tz, Math.max(0.9, ped.walkSpeed * 0.85), dt);
+        if (Math.hypot(tx - ped.x, tz - ped.z) < 0.45) {
+          if (!ped.enterPhase && Math.hypot(gl.fx - gl.x, gl.fz - gl.z) > 0.3) ped.enterPhase = 1;
+          else ped.gone = true;
+        }
+        if (ped.t > 60) ped.gone = true;
+        break;
+      }
+      case 'window': {
+        // a look in the shop window
+        const gl = ped.goal;
+        ped.speed = lerp(ped.speed, 0, 1 - Math.exp(-8 * dt));
+        if (gl) ped.heading = dampAngle(ped.heading, Math.atan2(gl.fx - ped.x, gl.fz - ped.z), 4, dt);
+        ped.windowT -= dt;
+        if (ped.windowT <= 0) { if (Math.random() < 0.4) { ped.state = 'enter'; ped.enterPhase = 0; } else { ped.state = 'walk'; this.plan(ped); } }
+        break;
+      }
+      case 'stroll': {
+        // round the plaza or the park at an easy pace, a stop here and there
+        const t = ped.strollTo;
+        ped.strollT -= dt;
+        if (ped.strollT <= 0 || !t) { this.rejoin(ped); ped.state = 'walk'; this.plan(ped); break; }
+        if (Math.hypot(t.x - ped.x, t.z - ped.z) < 0.6) {
+          if (ped.goal) ped.strollTo = this.pointNear(ped.goal.x, ped.goal.z, 9);
+          ped.state = 'idle'; ped.idleT = 3 + Math.random() * 7; ped.resume = 'stroll';
+          break;
+        }
+        this.steerTo(ped, t.x, t.z, ped.walkSpeed * 0.75, dt);
+        break;
+      }
+      case 'toBench': {
+        const b = ped.bench;
+        if (!b) { ped.state = 'stroll'; break; }
+        const fx = Math.sin(b.ang), fz = Math.cos(b.ang), bx = b.x + fx * 0.12, bz = b.z + fz * 0.12;
+        if (Math.hypot(bx - ped.x, bz - ped.z) < 0.35) { ped.x = bx; ped.z = bz; ped.heading = b.ang; ped.state = 'sit'; ped.sitT = 50 + Math.random() * 160; ped.char.setBase('sit'); break; }
+        this.steerTo(ped, bx, bz, ped.walkSpeed * 0.8, dt);
+        break;
+      }
+      case 'follow': {
+        // walking with someone: at their side, at their pace (and where they go in, in too)
+        const L = ped.leader;
+        if (!L || !this.list.includes(L) || L.state === 'dead' || L.state === 'fly' || L.state === 'lie') { ped.leader = null; this.rejoin(ped); ped.state = 'walk'; this.plan(ped); break; }
+        if (L.state === 'flee') { ped.state = 'flee'; ped.fear = 1; ped.threat = L.threat; break; }
+        if (L.state === 'enter' && L.goal) { ped.goal = L.goal; ped.state = 'enter'; ped.enterPhase = 0; break; }
+        const hx = Math.sin(L.heading), hz = Math.cos(L.heading);
+        const moving = L.speed > 0.3;
+        const tx = L.x + hz * 0.68 * (moving ? 1 : 0.9) - hx * (moving ? 0.1 : -0.55), tz = L.z - hx * 0.68 * (moving ? 1 : 0.9) - hz * (moving ? 0.1 : -0.55);
+        const d = Math.hypot(tx - ped.x, tz - ped.z);
+        if (d < 0.12 && !moving) { ped.speed = lerp(ped.speed, 0, 1 - Math.exp(-8 * dt)); ped.heading = dampAngle(ped.heading, L.heading + (L.state === 'idle' ? -1.2 : 0), 4, dt); break; }
+        this.steerTo(ped, tx, tz, clamp(L.speed * (1 + (d - 0.15) * 0.8), 0, L.walkSpeed * 1.5), dt);
+        break;
+      }
+      case 'chat': {
+        // two who have met: face to face until they have said what they had to say
+        ped.speed = lerp(ped.speed, 0, 1 - Math.exp(-8 * dt));
+        const o = ped.chatWith;
+        if (o) ped.heading = dampAngle(ped.heading, Math.atan2(o.x - ped.x, o.z - ped.z), 5, dt);
+        if (!ped.chat || ped.chat.done) { ped.char.setBase(null); ped.chat = null; ped.chatWith = null; this.rejoin(ped); ped.state = 'walk'; this.plan(ped); }
         break;
       }
       case 'call': {
@@ -385,6 +597,10 @@ export class Peds {
       }
       case 'sit':
         ped.speed = 0;
+        if (ped.sitT !== undefined && !ped.fixed) {
+          ped.sitT -= dt;
+          if (ped.sitT <= 0) { ped.sitT = undefined; if (ped.bench) ped.bench.used = false; ped.bench = null; ped.char.setBase(null); this.rejoin(ped); ped.state = 'walk'; this.plan(ped); break; }
+        }
         if (ped.fear > 0.6) { ped.char.setBase(null); ped.char.speaking = false; ped.char.lookAt(null); ped.state = 'flee'; ped.fixed = false; if (ped.bench) ped.bench.used = false; }
         break;
       case 'flee': {
@@ -480,7 +696,8 @@ export class Peds {
       if ((dx * Math.sin(yaw) + dz * Math.cos(yaw)) / (dPlayer || 1) > 0.975 && g.map.collider.raycast(pl.x, pl.z, ped.x, ped.z, 1.4, 1.4) > 0.97) this.surrender(ped);
     }
     // walls stop everyone on their feet — witnesses running off to phone the police too (they used to go through them)
-    if (ped.state === 'walk' || ped.state === 'flee' || ped.state === 'idle' || ped.state === 'fight' || ped.state === 'call') {
+    const st = ped.state;
+    if (st === 'walk' || st === 'flee' || st === 'idle' || st === 'fight' || st === 'call' || st === 'cross' || st === 'stroll' || st === 'follow' || st === 'window' || st === 'chat' || st === 'toBench') {
       const pos = { x: ped.x, z: ped.z };
       g.map.collider.resolveCircle(pos, 0.3);
       ped.x = pos.x; ped.z = pos.z;
@@ -488,9 +705,16 @@ export class Peds {
       if (!pl.vehicle && dPlayer < 0.75 && !pl.knock) {
         const dx = ped.x - pl.pos.x, dz = ped.z - pl.pos.z, l = Math.hypot(dx, dz) || 1;
         ped.x = pl.pos.x + (dx / l) * 0.75; ped.z = pl.pos.z + (dz / l) * 0.75;
-        if (!ped.talkCd) { this.say(ped, pick(FRASES.bump)); ped.talkCd = 4; }
+        if (!ped.talkCd) {
+          // a knock in passing is one thing; the third time, quite another
+          ped.bumps = (ped.bumps || 0) + 1;
+          const pv = Math.hypot(pl.vel.x, pl.vel.z);
+          if (ped.bumps >= 3 && ped.tough && st !== 'fight' && st !== 'flee') this.startFight(ped);
+          else this.say(ped, ped.bumps >= 3 ? pick(['¡Ya está bien, hombre!', '¿Me vas a dejar en paz o qué?', '¡Que me dejes!']) : pick(pv > 2.5 ? FRASES.bump : CLOSE));
+          ped.talkCd = 4;
+        }
       }
-      if (dPlayer < 3.2 && !pl.vehicle && ped.state !== 'flee' && Math.random() < dt * 0.25 && !ped.talkCd) { this.say(ped, pick(FRASES.greet)); ped.talkCd = 12; }
+      if (st !== 'flee' && st !== 'fight' && st !== 'call' && !pl.vehicle && dPlayer < 6) this.noticePlayer(ped, dt, dPlayer);
     }
     // vehicles hitting pedestrians
     if (ped.state !== 'fly' && ped.state !== 'lie' && ped.state !== 'dead') this.checkVehicles(ped);
@@ -499,7 +723,7 @@ export class Peds {
     if (ped.chk <= 0) {
       ped.chk = 1;
       if ((ped.state === 'walk' || ped.state === 'idle') && !ped.call && g.mode === 'normal') this.lookForBodies(ped);
-      if (ped.state !== 'fly' && this.map.buildingAt(ped.x, ped.z)) this.rescue(ped);
+      if (ped.state !== 'fly' && ped.state !== 'enter' && ped.state !== 'exit' && this.map.buildingAt(ped.x, ped.z)) this.rescue(ped); // (a doorway is half inside)
       if (ped.state === 'walk') {
         const moved = Math.hypot(ped.x - (ped.px ?? 1e9), ped.z - (ped.pz ?? 1e9));
         ped.px = ped.x; ped.pz = ped.z;
@@ -511,6 +735,231 @@ export class Peds {
         } else ped.stuckN = 0;
       }
     }
+  }
+
+  // you, close by: a hello that suits the hour (if they see you), unease if you follow them, a step back if you crowd them
+  noticePlayer(ped, dt, d) {
+    const g = this.game, pl = g.player;
+    const toX = pl.pos.x - ped.x, toZ = pl.pos.z - ped.z;
+    const ahead = toX * Math.sin(ped.heading) + toZ * Math.cos(ped.heading);
+    const pv = Math.hypot(pl.vel.x, pl.vel.z);
+    if (d < 3.4 && !ped.chat && !ped.talkCd && !(ped.greetedT > this.now - 120) && ahead > 0.4 * d && Math.random() < dt * (0.4 + ped.persona.chatty)) {
+      this.say(ped, greetLine(ped.persona, g.sky.hour)); ped.talkCd = 8; ped.greetedT = this.now;
+    }
+    if (ped.state === 'walk' && d < 5) {
+      if (ahead < -0.8 && pv > 0.6) ped.followedT = (ped.followedT || 0) + dt; else ped.followedT = Math.max(-60, (ped.followedT || 0) - dt * 0.5);
+      if (ped.followedT > 9) { ped.followedT = -45; this.say(ped, pick(FOLLOWED)); ped.walkSpeed = Math.min(2.1, ped.walkSpeed * 1.3); }
+    }
+    if (d < 1.1 && pv < 0.3 && (ped.state === 'idle' || ped.state === 'window' || ped.state === 'stroll') && !ped.fixed) {
+      ped.closeT = (ped.closeT || 0) + dt;
+      if (ped.closeT > 2.5 && !ped.talkCd) {
+        this.say(ped, pick(CLOSE)); ped.talkCd = 6; ped.closeT = 0;
+        const l = d || 1; ped.x -= (toX / l) * 0.45; ped.z -= (toZ / l) * 0.45;
+      }
+    } else ped.closeT = 0;
+  }
+
+  // ------------------------------------------------------------ going somewhere
+  // where to now, and the way there (npcmind.js); false: no plan (they just wander the streets)
+  plan(ped, goal = null) {
+    const g = this.game;
+    if (!this.places || !ped.edge) { ped.goal = null; ped.route = null; return false; }
+    const gl = goal || this.places.choose(ped.persona, g.sky.hour, weekday(g.sky), ped.x, ped.z);
+    const r = gl && routeBetween(this.map, { edge: ped.edge, s: clamp(ped.s, 0, ped.edge.len) }, { edge: gl.edge, s: gl.s }, this.walkOk);
+    if (!r) { ped.goal = null; ped.route = null; return false; }
+    ped.walkSide = ped.walkSide || (ped.side * ped.dir) || 1;
+    ped.goal = gl; ped.route = r; ped.ri = 0;
+    if (r[0].edge !== ped.edge) { ped.edge = r[0].edge; ped.s = r[0].dir > 0 ? 0.5 : ped.edge.len - 0.5; }
+    ped.dir = r[0].dir;
+    ped.side = ped.walkSide * ped.dir;
+    ped.t = 0;
+    if (ped.follower) { ped.walkSpeed = Math.min(ped.walkSpeed, ped.follower.walkSpeed); }
+    return true;
+  }
+  arrive(ped) {
+    const gl = ped.goal;
+    ped.route = null;
+    if (!gl) { ped.state = 'walk'; return; }
+    if (gl.open) {
+      // a plaza or a park: a bench for the older ones, a chat if someone is about, a stroll
+      const b = ped.persona.age !== 'joven' && Math.random() < 0.55 ? this.freeBench(ped.x, ped.z, 32) : null;
+      if (b && !ped.follower) { b.used = true; ped.bench = b; ped.state = 'toBench'; return; }
+      const gs = (this.groupSpots || []).find((q) => q.used && q.members && q.members.length && q.members.length < 4 && Math.hypot(q.x - ped.x, q.z - ped.z) < 25);
+      if (gs && !ped.follower && Math.random() < 0.5) {
+        const m0 = gs.members[0];
+        this.say(m0, fillLine(pick(['¡Hombre, @! ¿Qué te cuentas?', '¡Mira quién viene! Hola, @.', '¡Hola, @! Ven pa cá.']), m0.persona, ped.persona));
+        this.later.push({ ped, t: 1.2, text: pick(['¡Buenas a todos!', '¡Hola, hola!', 'Aquí, a ver qué se cuenta.']) });
+        this.joinGroup(ped, gs);
+        return;
+      }
+      const mate = !ped.follower && this.list.find((o) => o !== ped && !o.chat && !o.leader && !o.follower && (o.state === 'stroll' || (o.state === 'idle' && !o.fixed)) && Math.hypot(o.x - ped.x, o.z - ped.z) < 10);
+      if (mate) { this.pairChat(ped, mate, 'plaza'); return; }
+      ped.state = 'stroll'; ped.strollT = 20 + Math.random() * 40; ped.strollTo = this.pointNear(gl.x, gl.z, 8);
+      return;
+    }
+    if (gl.kind === 'tienda' && Math.random() < 0.55) { ped.state = 'window'; ped.windowT = 5 + Math.random() * 9; return; }
+    ped.state = 'enter'; ped.enterPhase = 0; ped.t = 0;
+  }
+  // somewhere to stand within r of (x, z), out in the open
+  pointNear(x, z, r) {
+    for (let k = 0; k < 10; k++) {
+      const a = Math.random() * Math.PI * 2, d = Math.random() * r;
+      const px = x + Math.cos(a) * d, pz = z + Math.sin(a) * d;
+      if (!this.map.buildingAt(px, pz) && this.map.collider.raycast(x, z, px, pz, 1, 0.4) > 0.98) return { x: px, z: pz };
+    }
+    return { x, z };
+  }
+  startCross(ped) {
+    ped.state = 'cross';
+    ped.cross = { phase: 'look', t: 0.7 + Math.random() * 0.8, s: ped.s, to: -ped.side };
+  }
+  // nothing coming: no car within a few metres, none heading this way along the street
+  clearToCross(ped) {
+    for (const v of this.game.fleet.vehicles) {
+      const dx = ped.x - v.x, dz = ped.z - v.z, d = Math.hypot(dx, dz);
+      if (d > 28) continue;
+      const sp = Math.hypot(v.vx || 0, v.vz || 0);
+      if (d < 5 && sp > 0.4) return false;
+      if (sp > 1.5 && (v.vx * dx + v.vz * dz) / (sp * d) > 0.55) return false;
+    }
+    return true;
+  }
+  // the lateral step aside (m, + to the right) a walker takes for whoever is in the way
+  avoid(ped, dt) {
+    const hx = Math.sin(ped.heading), hz = Math.cos(ped.heading);
+    let want = 0, slow = 1;
+    // is there room to step aside? (a facade on that side, a car, the kerb of a narrow alley)
+    const room = (k) => this.map.collider.raycast(ped.x, ped.z, ped.x - hz * k * 0.95, ped.z + hx * k * 0.95, 1, 0.3) > 0.97;
+    const look = (ox, oz, oh, osp, standing) => {
+      const dx = ox - ped.x, dz = oz - ped.z;
+      const fwd = dx * hx + dz * hz;
+      if (fwd < -0.3 || fwd > (oh < -0.3 ? 6.5 : 3.2)) return;  // (someone coming the other way is seen from further off)
+      const lat = dx * -hz + dz * hx; // (+: on their right)
+      if (Math.abs(lat) > 1.25) return;
+      if (fwd > 0 && fwd < 0.9 && Math.abs(lat) < 0.55) slow = Math.min(slow, 0.25);     // about to bump: almost stop
+      if (oh < -0.3) { if (room(1)) want = Math.max(want, 0.75); }                    // coming the other way: keep right (if the wall lets you: else they will)
+      else if (!standing && oh > 0.5 && osp < ped.walkSpeed - 0.15) { if (fwd < 1.4) { const k = lat > 0 ? -1 : 1; want = room(k) ? k * 0.7 : 0; if (!want) slow = Math.min(slow, 0.7); } else slow = Math.min(slow, 0.85); } // overtake
+      else { let k = lat > 0 ? -1 : 1; if (!room(k)) k = -k; want = room(k) ? k * 0.7 : 0; if (!want) slow = Math.min(slow, 0.3); } // round whoever stands there
+    };
+    for (const o of this.list) {
+      if (o === ped || o === ped.leader || o === ped.follower || o.state === 'dead' || o.state === 'lie' || o.state === 'fly') continue;
+      if (Math.abs(o.x - ped.x) > 6.6 || Math.abs(o.z - ped.z) > 6.6) continue;
+      const moving = o.speed > 0.3;
+      look(o.x, o.z, moving ? Math.sin(o.heading) * hx + Math.cos(o.heading) * hz : 0, o.speed, !moving);
+    }
+    const pl = this.game.player;
+    if (!pl.vehicle && pl.mode === 'foot') { const pv = Math.hypot(pl.vel.x, pl.vel.z); look(pl.pos.x, pl.pos.z, pv > 0.3 ? (pl.vel.x * hx + pl.vel.z * hz) / pv : 0, pv, pv < 0.3); }
+    ped.lat = (ped.lat || 0) + (want - (ped.lat || 0)) * Math.min(1, dt * (want ? 5 : 1.6)); // (aside quickly, back slowly)
+    ped.slowK = lerp(ped.slowK ?? 1, slow, Math.min(1, dt * 3));
+    return Math.abs(ped.lat) > 0.01 ? ped.lat : 0;
+  }
+  // two neighbours who pass each other: a greeting, and its answer
+  passing(dt, p) {
+    this.passT = (this.passT || 0) - dt;
+    if (this.passT > 0) return;
+    this.passT = 0.3;
+    const h = this.game.sky.hour, part = partOfDay(h), now = this.now;
+    const W = this.list.filter((q) => (q.state === 'walk' || q.state === 'stroll') && !q.leader && Math.abs(q.x - p.x) < 18 && Math.abs(q.z - p.z) < 18);
+    for (let i = 0; i < W.length; i++) for (let j = i + 1; j < W.length; j++) {
+      const a = W[i], b = W[j];
+      if (a.follower === b || b.follower === a) continue;
+      const d = Math.hypot(a.x - b.x, a.z - b.z);
+      if (d > 2.6 || d < 0.6) continue;
+      if (Math.sin(a.heading) * Math.sin(b.heading) + Math.cos(a.heading) * Math.cos(b.heading) > -0.4) continue; // (they meet, face to face)
+      if (a.passed === b || b.passed === a || a.greetedT > now - 25 || b.greetedT > now - 25) continue;
+      a.passed = b; b.passed = a;
+      const k = (a.persona.age === 'mayor' || b.persona.age === 'mayor' ? 0.75 : 0.35) * (a.persona.chatty + b.persona.chatty) * 0.6;
+      if (Math.random() > k) continue;
+      const L = pick(PASSING[part] || PASSING.tarde);
+      a.greetedT = b.greetedT = now;
+      this.say(a, fillLine(L[0], a.persona, b.persona));
+      this.later.push({ ped: b, t: 1.1 + Math.random() * 0.5, text: fillLine(L[1], b.persona, a.persona) });
+      // now and then the two of them stop for a chat
+      if (Math.random() < (a.persona.age === 'mayor' && b.persona.age === 'mayor' ? 0.35 : 0.12) && !a.follower && !b.follower) this.pairChat(a, b, 'calle');
+    }
+  }
+  // someone to walk with: same age, same plan, side by side, talking
+  companion(L) {
+    if (!L.route) return null;
+    const rnd = Math.random;
+    const d = randomDesc(this.rnd);
+    d.elderly = L.char.desc.elderly;
+    if (d.elderly) { d.hair = rnd() < 0.7 ? 6 : 5; d.cane = false; }
+    const hx = Math.sin(L.heading), hz = Math.cos(L.heading);
+    const f = this.spawnAt(L.x + hz * 0.7, L.z - hx * 0.7, d);
+    f.state = 'follow'; f.leader = L; L.follower = f;
+    f.edge = L.edge; f.s = L.s; f.dir = L.dir; f.side = L.side; f.heading = L.heading;
+    if (L.persona.age === 'mayor' || f.persona.age === 'mayor') { L.walkSpeed = Math.min(L.walkSpeed, f.walkSpeed, 1.05); }
+    else L.walkSpeed = Math.min(L.walkSpeed, f.walkSpeed);
+    f.persona.age = L.persona.age;
+    this.startChat([L, f], 'calle', { loop: true });
+    return f;
+  }
+  // two who have met stop to talk (and then each goes their way)
+  pairChat(a, b, where) {
+    for (const [m, o] of [[a, b], [b, a]]) { m.state = 'chat'; m.chatWith = o; m.route = null; m.char.setBase('talk'); }
+    // the second one comes to stand in front of the first
+    const dx = b.x - a.x, dz = b.z - a.z, l = Math.hypot(dx, dz) || 1;
+    if (l > 1.3) { b.x = a.x + (dx / l) * 1.1; b.z = a.z + (dz / l) * 1.1; }
+    const c = this.startChat([a, b], where, {
+      loop: false,
+      onEnd: () => {
+        const bye = pick(BYE);
+        if (this.list.includes(a)) this.say(a, fillLine(bye[0], a.persona, b.persona));
+        if (this.list.includes(b)) this.later.push({ ped: b, t: 1.3, text: fillLine(bye[1], b.persona, a.persona) });
+        for (const m of [a, b]) { m.chat = null; }
+      },
+    });
+    return c;
+  }
+  // people come out of their houses and of the shops (where you can see them do it)
+  spawnFromDoor(p) {
+    const g = this.game, h = g.sky.hour;
+    if (!this.places || h < 7 || h > 23.4) return false;
+    const shopsOpen = (h >= 9 && h < 14) || (h >= 17.5 && h < 21);
+    const doors = this.places.doors;
+    for (let a = 0; a < 6; a++) {
+      let d = null;
+      if (shopsOpen && Math.random() < 0.35 && g.shops && g.shops.list.length) { const sh = g.shops.list[Math.floor(Math.random() * g.shops.list.length)]; d = { x: sh.x, z: sh.z, wx: sh.fx, wz: sh.fz }; }
+      else if (doors.length) d = doors[Math.floor(Math.random() * doors.length)];
+      if (!d) continue;
+      const dist = Math.hypot(d.x - p.x, d.z - p.z);
+      if (dist < 16 || dist > 65 || this.map.buildingAt(d.x, d.z)) continue;
+      const q = this.map.nearestEdge(d.x, d.z, 14, this.walkOk);
+      if (!q || q.d > 14) continue;
+      const t = this.map.sample(q.edge, q.s, {});
+      const side = (d.x - t.x) * -t.dz + (d.z - t.z) * t.dx >= 0 ? 1 : -1;
+      const sx = d.wx ?? d.x, sz = d.wz ?? d.z;
+      const ped = this.spawnAt(sx, sz);
+      ped.state = 'exit'; ped.exitTo = this.sidePoint(q.edge, q.s, side, {});
+      ped.edge = q.edge; ped.s = q.s; ped.side = side; ped.dir = Math.random() < 0.5 ? 1 : -1; ped.walkSide = side * ped.dir;
+      ped.heading = Math.atan2(ped.exitTo.x - sx, ped.exitTo.z - sz);
+      this.plan(ped);
+      if (dist < 25) g.audio.sfx('door_open', { x: sx, z: sz, vol: 0.25 });
+      return true;
+    }
+    return false;
+  }
+  // after mass, the people come out of Santa María (and some stay a while at the door, talking)
+  churchCrowd(p) {
+    const g = this.game, lm = g.world && g.world.landmarks && g.world.landmarks.poi;
+    if (!lm || !lm.churchDoor || !this.places) return;
+    const m = massTime(g.sky.hour, weekday(g.sky));
+    if (!m || m.phase !== 'salida') { this.churchOut = 0; return; }
+    const door = lm.churchDoor, portal = lm.churchPortal || door;
+    if (Math.hypot(door.x - p.x, door.z - p.z) > 160 || this.churchOut >= 12 || Math.random() > 0.18) return;
+    const q = this.map.nearestEdge(door.x, door.z, 20, this.walkOk);
+    if (!q || q.d > 20) return;
+    this.churchOut++;
+    const d = randomDesc(this.rnd);
+    d.elderly = Math.random() < 0.65; if (d.elderly) { d.hair = 6; d.cane = false; if (d.gender === 'm') { d.accessory = 'boina'; d.accessoryColor = '#2a2a2a'; } }
+    const ped = this.spawnAt(portal.x + (Math.random() - 0.5) * 1.2, portal.z + (Math.random() - 0.5) * 1.2, d);
+    ped.state = 'exit'; ped.exitTo = this.pointNear(door.x, door.z, 3);
+    ped.edge = q.edge; ped.s = q.s; ped.side = 1; ped.dir = Math.random() < 0.5 ? 1 : -1; ped.walkSide = ped.dir;
+    this.plan(ped);
+    // a word at the door with whoever came out before
+    const mate = this.list.find((o) => o !== ped && o.state === 'walk' && !o.chat && !o.leader && !o.follower && Math.hypot(o.x - door.x, o.z - door.z) < 8);
+    if (mate && Math.random() < 0.45) setTimeout(() => { if (this.list.includes(ped) && this.list.includes(mate) && ped.state === 'walk' && mate.state === 'walk') this.pairChat(ped, mate, 'iglesia'); }, 2500);
   }
 
   // put a pedestrian back on the nearest sidewalk (outside buildings)
@@ -550,6 +999,16 @@ export class Peds {
 
   nextEdge(ped) {
     const e = ped.edge;
+    // on their way somewhere: the next street of the route, on the same side of it (their right or their left)
+    if (ped.route && ped.ri < ped.route.length - 1) {
+      const ws = ped.walkSide || ped.side * ped.dir;
+      const st = ped.route[++ped.ri];
+      ped.edge = st.edge; ped.dir = st.dir;
+      ped.s = st.dir > 0 ? 0.3 : st.edge.len - 0.3;
+      ped.side = ws * st.dir; ped.walkSide = ws;
+      return;
+    }
+    ped.route = null; ped.goal = null;
     const nodeId = ped.dir > 0 ? e.b : e.a;
     const node = this.map.nodes[nodeId];
     const opts = node.edges.map((id) => this.map.edges[id]).filter((x) => x.id !== e.id && x.walk && !x.blocked && !x.dirt && x.cls !== 'track' && x.len > 3);
@@ -587,7 +1046,7 @@ export class Peds {
       // dodge cars driving on the sidewalk towards them
       if (v.driver === 'player' && lf > 0 && lf < 12 && Math.abs(ll) < 2.2 && v.speed > 4 && ped.state !== 'flee' && !ped.call) {
         ped.state = 'flee'; ped.fear = 0.6; ped.threat = { x: v.x, z: v.z };
-        if (!ped.talkCd) { this.say(ped, pick(FRASES.car)); ped.talkCd = 3; }
+        if (!ped.talkCd) { this.say(ped, pick(this.map.roadAt && !this.map.roadAt(v.x, v.z, 0.3) ? FRASES.carWalk : FRASES.car)); ped.talkCd = 3; }
       }
     }
   }
@@ -719,13 +1178,35 @@ export class Peds {
     return amount;
   }
   // chat: castúo small talk; press again quickly to wind them up
+  // you stop someone: they tell you what they are up to (where they are going, why they sit there), as suits who they
+  // are and the hour; the second time a word more; the third, enough. If they saw you do something, they want no part
   talk(ped) {
     const g = this.game;
-    const pl = g.player.pos;
+    const pl = g.player.pos, h = g.sky.hour, per = ped.persona || personaOf(ped.char.desc);
     ped.talks = (ped.talks || 0) + 1;
     ped.heading = Math.atan2(pl.x - ped.x, pl.z - ped.z);
-    if (ped.state === 'walk' || ped.state === 'idle') { ped.state = 'idle'; ped.idleT = 4; ped.speed = 0; ped.char.setBase('talk'); }
-    this.say(ped, pick(ped.talks > 2 ? FRASES.annoyed : FRASES.talk));
+    const was = ped.state;
+    if (was === 'walk' || was === 'idle' || was === 'stroll' || was === 'window' || was === 'follow') {
+      ped.resume = was === 'stroll' || was === 'window' ? was : null;
+      ped.state = 'idle'; ped.idleT = 4; ped.speed = 0; ped.char.setBase('talk');
+      if (ped.follower) { ped.follower.speed = 0; }
+    }
+    if (ped.chat) ped.chat.t = Math.max(ped.chat.t, 3.5); // (their conversation waits)
+    let line;
+    const wanted = g.police && g.police.wanted > 0;
+    if (ped.sawPlayer || (wanted && Math.random() < 0.7)) line = pick(WARY);
+    else if (ped.talks > 2) line = pick(ped.fixed || ped.group || ped.bench || ped.fresco || ped.chat ? ANNOYED_SAT : ANNOYED);
+    else if ((h < 6 || h > 23.6) && per.age === 'mayor') line = pick(AFTER_DARK);
+    else if (ped.talks === 2) line = pick(['¿Algo más, {hijo|hija}?', 'Bueno, que me voy, ¿eh?', 'Pues nada, que te vaya bien.', 'Ya te he dicho, ¿eh?']);
+    else {
+      const hi = greetLine(per, h);
+      if (ped.fresco) line = hi + ' ' + pick(['Aquí, tomando el fresco. ¿Te sientas un ratino?', 'Aquí estamos, de charla. Siéntate si quieres.']);
+      else if (ped.bench) line = hi + ' ' + pick(['Aquí, viendo pasar a la gente.', 'Aquí [sentado|sentada], tomando el sol, que es gratis.', 'Descansando un poco las piernas.']);
+      else if (ped.group) line = hi + ' ' + pick(['Aquí, de cháchara con estos.', 'Aquí, arreglando el mundo.', 'Pues aquí, de charla. ¿Qué se cuenta?']);
+      else if (ped.goal) line = per.hurry > 0.7 && Math.random() < 0.35 ? pick(BUSY) : hi + ' ' + errandLine(ped.goal.kind, h);
+      else line = hi + ' ' + pick(['Aquí, dando una vuelta.', 'Pues aquí, tomando el aire.', 'Paseando, que dice el médico que es bueno.']);
+    }
+    this.say(ped, line);
     ped.talkCd = 3;
     g.audio.sfx('text_msg', { vol: 0.3 });
   }
@@ -739,6 +1220,7 @@ export class Peds {
   }
 
   scare(x, z, r, threat = null, gun = false) {
+    this.trouble = { x, z, t: this.now };
     for (const p of this.list) {
       if (p.state === 'lie' || p.state === 'fly' || p.state === 'dead' || p.state === 'handsup') continue;
       if (p.call) { p.fear = 1; continue; } // already on the phone to the police
@@ -821,6 +1303,8 @@ export class Peds {
     if (ped.bench) { ped.bench.used = false; ped.bench = null; }
     if (ped.group) { ped.group.used = false; ped.group = null; }
     ped.fixed = false; ped.char.setBase(null); ped.char.speaking = false;
+    if (crime !== 'cadaver') ped.sawPlayer = true;
+    if (ped.chat) { ped.chat.members = ped.chat.members.filter((m) => m !== ped); ped.chat = null; }
     ped.call = { crime, x, z, t: 0, dur: 4.5 + Math.random() * 2.5, delay: delay ?? 1 + Math.random() * 1.5, started: false };
     ped.state = 'call';
     this.game.police.calls.add(ped);
@@ -894,7 +1378,8 @@ export class Peds {
       v.set(s.ped.x, y + 2.05, s.ped.z).project(cam);
       if (v.z > 1 || dist > 35) { s.el.style.opacity = 0; continue; }
       s.el.style.opacity = Math.min(1, s.t * 2);
-      s.el.style.transform = `translate(${(v.x * 0.5 + 0.5) * W}px, ${(-v.y * 0.5 + 0.5) * H}px) translate(-50%, -100%)`;
+      const [sx, sy] = STYLE.anime ? lensMap(v.x * 0.5 + 0.5, v.y * 0.5 + 0.5) : [v.x * 0.5 + 0.5, v.y * 0.5 + 0.5]; // (through the lens)
+      s.el.style.transform = `translate(${sx * W}px, ${(1 - sy) * H}px) translate(-50%, -100%)`;
     }
     for (const m of this.marks) {
       const y = m.ped.y || 0;
@@ -902,7 +1387,8 @@ export class Peds {
       v.set(m.ped.x, y + 2.35, m.ped.z).project(cam);
       if (v.z > 1 || dist > 60) { m.el.style.opacity = 0; continue; }
       m.el.style.opacity = 1;
-      m.el.style.transform = `translate(${(v.x * 0.5 + 0.5) * W}px, ${(-v.y * 0.5 + 0.5) * H}px) translate(-50%, -100%)`;
+      const [sx, sy] = STYLE.anime ? lensMap(v.x * 0.5 + 0.5, v.y * 0.5 + 0.5) : [v.x * 0.5 + 0.5, v.y * 0.5 + 0.5];
+      m.el.style.transform = `translate(${sx * W}px, ${(1 - sy) * H}px) translate(-50%, -100%)`;
     }
   }
   clear() {

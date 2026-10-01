@@ -551,6 +551,16 @@ class Landmarks {
     this.poi.churchTower = { x: towerWorld.x, z: towerWorld.z, top: 31 };
     const doorWorld = new THREE.Vector3(x0 - 6, 0, 0).applyMatrix4(g.matrixWorld);
     this.poi.churchDoor = { x: doorWorld.x, z: doorWorld.z };
+    // the doors you can go in by (the inside: church.js): the main one at the foot, the south one (del Mediodía)
+    const toW = (lx, lz) => { const v = new THREE.Vector3(lx, 0, lz).applyMatrix4(g.matrixWorld); return { x: v.x, z: v.z }; };
+    this.poi.churchPortal = toW(x0 + 0.4, 0);
+    // (out from each door to the first free spot of the street: the Catastro footprint takes in the chapels)
+    const outside = (lx, lz, dx, dz, max = 20) => { for (let k = 0; k < max * 2; k++) { const q = toW(lx + dx * k * 0.5, lz + dz * k * 0.5); if (!this.map.buildingAt(q.x, q.z)) return toW(lx + dx * (k * 0.5 + 1.0), lz + dz * (k * 0.5 + 1.0)); } return null; };
+    const w = outside(x0 - 0.4, 0, -1, 0);
+    this.poi.churchWest = { ...(w || toW(x0 - 1.6, 0)), f: toW(x0 + 0.4, 0) };
+    // (the south door only where it really opens onto the street: the annexes may stand in front of it)
+    const sDoor = outside(x0 + naveLen * 0.55, south * (nw + 0.4), 0, south, 2.6);
+    if (sDoor) this.poi.churchSouth = { ...sDoor, f: toW(x0 + naveLen * 0.55, south * (nw - 0.4)) };
     this.storkSpots = [new THREE.Vector3(tx + 2.2, 31.2, tz - 2.2).applyMatrix4(g.matrixWorld), new THREE.Vector3(xa - 2, H + 5.6, 0).applyMatrix4(g.matrixWorld)];
     // collider: full footprint is already claimed
   }

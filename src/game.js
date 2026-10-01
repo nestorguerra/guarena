@@ -7,6 +7,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { STYLE } from './style.js';
 import { ToonPipeline } from './toon.js';
+import { LoFi } from './lofi.js';
 import { MapData } from './mapdata.js';
 import { World } from './world.js';
 import { SkySystem } from './sky.js';
@@ -549,6 +550,13 @@ export class Game {
       }
       shared.uTime.value += dt;
       const p = this.player;
+      // (the anime look) a quiet lo-fi bed while you walk the town: not in a car or with the radio on, not in church
+      if (STYLE.anime) {
+        if (!this.lofi) this.lofi = new LoFi(this.audio);
+        this.lofi.enabled = this.save.lofi !== false;
+        const radio = this.audio._radioOn || (this.fm && this.fm.where);
+        this.lofi.update(dt, (p.mode === 'foot' || p.mode === 'sit') && !radio && !(this.interior && this.interior.church));
+      }
       p.update(dt, input, this.cam.forwardYaw);
       this.net.update(dt); // friends (multiplayer): their state in, ours out
       const inCar = !!p.vehicle;

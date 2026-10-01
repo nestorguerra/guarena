@@ -657,6 +657,10 @@ body[data-look="anime"] #phone { border-color: var(--ink); box-shadow: 6px 6px 0
 #introImg.on { opacity: 1; }
 body[data-look="anime"] #loading { display: none; }
 body[data-look="anime"] #bChars, body[data-look="anime"] #pChars, body[data-look="anime"] #mpChangeChar { display: none; }
+
+/* standing still a while (anime look): the HUD fades and the camera drifts (player.js CameraRig) */
+#hud .tr, #hud .radarWrap, #hud #streetBox { transition: opacity 1.2s ease; }
+body.contemplar #hud .tr, body.contemplar #hud .radarWrap, body.contemplar #hud #notes, body.contemplar #hud #streetBox { opacity: 0.1; }
 </style>
 <canvas id="game"></canvas>
 

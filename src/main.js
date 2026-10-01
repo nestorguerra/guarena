@@ -570,6 +570,7 @@ function settingsHtml() {
     <div class="setting"><span>Estilo visual <small style="opacity:.6">(se aplica al recargar)</small></span><span class="seg" id="sS"><button data-s="anime" class="${STYLE.anime ? 'on' : ''}">Anime</button><button data-s="real" class="${STYLE.anime ? '' : 'on'}">Realista</button></span></div>
     <div class="setting"><span>Resolución <small style="opacity:.6">(automática: baja un poco solo si el juego va a tirones)</small></span><span class="seg" id="sR"><button data-r="auto" class="${game.save.dynRes !== false ? 'on' : ''}">Automática</button><button data-r="fija" class="${game.save.dynRes === false ? 'on' : ''}">Fija</button></span></div>
     <div class="setting"><span>Hora del día</span><span class="seg" id="sT">${times.map(([n, h]) => `<button data-h="${h}">${n}</button>`).join('')}</span></div>
+    ${STYLE.anime ? `<div class="setting"><span>Música lo-fi <small style="opacity:.6">(suena bajito mientras paseas)</small></span><span class="seg" id="sL"><button data-l="on" class="${game.save.lofi !== false ? 'on' : ''}">Sí</button><button data-l="off" class="${game.save.lofi === false ? 'on' : ''}">No</button></span></div>` : ''}
     <div class="setting"><span>Música (radio)</span><input id="sMus" type="range" min="0" max="1" step="0.05" value="${game.save.music ?? 0.55}"></div>
     <div class="setting"><span>Efectos</span><input id="sSfx" type="range" min="0" max="1" step="0.05" value="${game.save.sfx ?? 0.9}"></div>
     <div class="setting"><span>Sensibilidad del ratón</span><input id="sSens" type="range" min="0.3" max="2.5" step="0.1" value="${game.cam.sens}"></div>`;
@@ -593,6 +594,7 @@ function bindSettings() {
     } else if (rl) rl.remove();
   }));
   document.querySelectorAll('#sR button').forEach((b) => (b.onclick = () => { game.save.dynRes = b.dataset.r === 'auto'; game.persist(); document.querySelectorAll('#sR button').forEach((x) => x.classList.toggle('on', x === b)); }));
+  document.querySelectorAll('#sL button').forEach((b) => (b.onclick = () => { game.save.lofi = b.dataset.l === 'on'; game.persist(); document.querySelectorAll('#sL button').forEach((x) => x.classList.toggle('on', x === b)); }));
   document.querySelectorAll('#sT button').forEach((b) => (b.onclick = () => { game.sky.hour = parseFloat(b.dataset.h); game.sky.update(0, game.camera.position, true); game.render(); }));
   const mus = $('sMus'), sfx = $('sSfx'), sens = $('sSens');
   if (mus) mus.oninput = () => { game.save.music = +mus.value; audio.setVolumes({ music: +mus.value }); game.persist(); };
