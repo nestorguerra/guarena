@@ -276,10 +276,32 @@ export class Activities {
   armed() { const W = this.game.weapons; return !!(W && W.def.clip); }
   armedAt() { return false; }
 
+  // a dip in the pool: down the ladder, a few lengths, out again dripping (and feeling better)
+  async dip(lad) {
+    const g = this.game, p = g.player;
+    if (this.dipping) return;
+    this.dipping = true;
+    g.audio.sfx('splash', { x: lad.x, z: lad.z, vol: 0.7 });
+    const hold = g.input.enabled; g.input.enabled = false;
+    try {
+      if (g.interiors && g.interiors.fade) await g.interiors.fade(true);
+      const n = Math.min(100, p.health + (lad.kids ? 5 : 20)) - p.health; p.health += n;
+      p.wetT = 40; // (dripping for a while)
+      if (g.interiors && g.interiors.fade) setTimeout(() => g.interiors.fade(false), 900);
+      g.hud.notify(lad.kids ? 'Te mojas los pies con los críos. Qué gusto con este calor.' : `¡Al agua! Te haces unos largos y sales chorreando.${n > 0 ? ` +${Math.round(n)} de salud` : ''}`, 'ok', 4);
+      setTimeout(() => g.audio.sfx('splash', { x: lad.x, z: lad.z, vol: 0.35 }), 500);
+    } finally { g.input.enabled = hold; setTimeout(() => { this.dipping = false; }, 1500); }
+  }
   footOption() {
     const g = this.game, p = g.player;
     if (g.fishing && g.fishing.active) return null; // the rod has the keys
     if (g.interior) return g.interiors.option();
+    // a public building's door comes first (the town hall's job is offered at its door too)
+    const vd = g.mode === 'normal' && g.interiors && g.interiors.doorNear(p.pos.x, p.pos.z, 1.7);
+    if (vd && vd.venue) return { label: `Entrar: ${vd.name}`, run: () => g.interiors.enter(vd, { mode: 'visit' }) };
+    // the municipal pool: in off the ladder
+    const lad = ((g.world.landmarks && g.world.landmarks.poi.poolLadders) || []).find((q) => Math.hypot(q.x - p.pos.x, q.z - p.pos.z) < 1.4);
+    if (lad && p.mode === 'foot') return { label: lad.kids ? 'Mojarte los pies en la piscina pequeña' : 'Darte un chapuzón en la piscina', run: () => this.dip(lad) };
     const J = g.jobs;
     if (J && g.mode === 'normal') {
       const jo = J.option();

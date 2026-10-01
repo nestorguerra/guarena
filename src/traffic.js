@@ -244,7 +244,7 @@ export class Traffic {
       v.vx = lp.dx * sp; v.vz = lp.dz * sp;
       v.locked = false;
       if (model === 'taxi') v.taxiFree = Math.random() < 0.6;
-      v.ai = { mode: 'traffic', edge: e, dir, s: dir > 0 ? s : e.len - s, next: null, speedMul: 0.85 + Math.random() * 0.25, waitT: 0, stuckT: 0, fixT: 0 };
+      v.ai = { mode: 'traffic', edge: e, dir, s: dir > 0 ? s : e.len - s, next: null, speedMul: 0.76 + Math.random() * 0.18, waitT: 0, stuckT: 0, fixT: 0 }; // (calm drivers: nobody tears through the town)
       this.planRoute(v);
       this.cars.push(v);
       return;
@@ -339,17 +339,17 @@ export class Traffic {
     if (gap < 40) tsp = Math.min(tsp, Math.max(0, (gap - 3) * 0.85));
     if (gap < 8 && Math.abs(v.speed) < 0.6 && this._blocker && this._blocker.vel < 0.5) {
       ai.blockT = (ai.blockT || 0) + dt;
-      if (ai.blockT > (ai.suspect ? 1 : 3.5)) { ai.bypassT = 6; ai.bypassOf = this._blocker; ai.blockT = 0; }
+      if (ai.blockT > (ai.suspect ? 1 : 6)) { ai.bypassT = 6; ai.bypassOf = this._blocker; ai.blockT = 0; }
     } else ai.blockT = 0;
     if (ai.bypassT > 0) ai.bypassT -= dt;
-    if (ai.panic) { tsp *= 1.35; ai.panic -= dt; if (ai.panic <= 0) ai.panic = 0; }
+    if (ai.panic) { tsp *= 1.2; ai.panic -= dt; if (ai.panic <= 0) ai.panic = 0; }
     driveToward(v, target.x, target.z, tsp, dt);
     // stuck detection: every few seconds back up with opposite lock, then try again
     if (Math.abs(v.speed) < 0.5 && tsp > 2) ai.stuckT += dt; else if (!ai.revT) ai.stuckT = Math.max(0, ai.stuckT - dt * 2);
     if (ai.stuckT > 3.5 && !ai.revT) {
       ai.tries = (ai.tries || 0) + 1; ai.stuckT = 0;
       if (this.gapBehind(v) > 3.5) { ai.revT = 1.4; ai.revSteer = -Math.sign(v.steerIn || 1); }
-      if (ai.tries >= 2) ai.ghostT = 4; // squeeze past (AI cars only)
+      if (ai.tries >= 3) ai.ghostT = 4; // squeeze past (AI cars only)
     }
     // a jam that nobody is looking at: the car simply goes home
     if (Math.abs(v.speed) < 0.5) ai.jamT = (ai.jamT || 0) + dt; else ai.jamT = 0;

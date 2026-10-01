@@ -325,8 +325,11 @@ export function buildGround(map, materials, opts = {}) {
     const L = offsetPolyline(e.pts, hw), R = offsetPolyline(e.pts, -hw);
     if (B === asphalt) {
       // how worn this street is: main roads are resurfaced, old back streets are not
-      const base = e.cls === 'primary' || e.cls === 'primary_link' ? 0.12 : e.cls === 'secondary' ? 0.22 : e.cls === 'tertiary' ? 0.38 : e.cls === 'service' ? 0.7 : 0.55;
-      const dmg = clamp(base + (hash1(e.id * 7 + 3) - 0.5) * 0.35, 0.02, 0.98);
+      // (the town has resurfaced its streets lately: the wear is light; Calle Derecha and the streets round the
+      // swimming pool are freshly done)
+      const base = e.cls === 'primary' || e.cls === 'primary_link' ? 0.06 : e.cls === 'secondary' ? 0.12 : e.cls === 'tertiary' ? 0.2 : e.cls === 'service' ? 0.4 : 0.3;
+      const fresh = /^(Calle Derecha|Calle Puerta del Sol|Avenida de la Constitución|Carretera de Guareña a Oliva de Mérida)$/.test(e.name || '') || Math.hypot(e.pts[0] + 560, e.pts[1] - 215) < 170;
+      const dmg = fresh ? 0.03 : clamp(base + (hash1(e.id * 7 + 3) - 0.5) * 0.2, 0.02, 0.8);
       // overlapping strips of the same layer used to flicker (z-fighting) where streets meet: a few millimetres of
       // height by importance (the main road on top) and the junction discs above them all
       const zy = e.cls === 'primary' || e.cls === 'primary_link' || e.cls === 'secondary' ? 0.005 : e.cls === 'tertiary' ? 0.0035 : e.cls === 'service' ? 0 : 0.002;

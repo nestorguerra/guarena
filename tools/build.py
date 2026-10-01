@@ -53,7 +53,12 @@ def parse_module(fname, seen, order, externals):
     order.append((fname, code, local_imports))
 
 
+# whole-line comments go (the page must stay under the artifact host's 16 MB); the sources keep them
+FULL_LINE_COMMENT_RE = re.compile(r'^[ \t]*//[^\n]*\n', re.M)
+
+
 def transform(fname, code, local_imports, exports_of):
+    code = FULL_LINE_COMMENT_RE.sub('', code)
     # drop import lines
     code = IMPORT_RE.sub('', code)
     # main.js: static audio instead of dynamic import

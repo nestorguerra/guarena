@@ -16,7 +16,9 @@ import { buildShop } from './shops.js';
 import { ITEMS, lc } from './items.js';
 import { buildChurch, updateBeams, lightCandle, ChurchLife } from './church.js';
 import { massTime, weekday } from './npcmind.js';
+import { buildVenue, VenueLife, setVenueDesc } from './venues.js';
 setDescMaker(randomDesc);
+setVenueDesc(() => randomDesc(Math.random));
 Object.assign(COP_DESC_REF, COP_DESC);
 const wait = (ms) => new Promise((res) => setTimeout(res, ms));
 const inHours = (h, a, b) => (a < b ? h >= a && h < b : h >= a || h < b);
@@ -794,6 +796,11 @@ export class Interiors {
       const spr = new THREE.Sprite(this.iconMat); spr.scale.set(0.6, 0.6, 1); spr.position.set(d.x, 2.7, d.z); spr.visible = false; this.root.add(spr);
       this.doors.push({ x: d.x, z: d.z, fx: d.f.x, fz: d.f.z, name: 'Iglesia de Santa María', seed: 7, owner: null, church: key, spr, leaves: d.door || null, thr: d.thr || { x: d.x, z: d.z }, nx: d.nx ?? 0, nz: d.nz ?? 1, half: d.half || 1.2, shut: key === 'norte' });
     }
+    // the public buildings you can go into (venues.js): the Ayuntamiento, the theatre, the market, the sports hall…
+    for (const v of (lm && lm.venues) || []) {
+      const spr = new THREE.Sprite(this.iconMat); spr.scale.set(0.6, 0.6, 1); spr.position.set(v.x, 2.7, v.z); spr.visible = false; this.root.add(spr);
+      this.doors.push({ x: v.x, z: v.z, fx: v.fx, fz: v.fz, name: v.name, seed: v.seed || 5, owner: null, venue: v.kind, spr, leaves: v.door || null, thr: v.thr, nx: v.nx, nz: v.nz, half: v.half || 1, marker: !v.door });
+    }
     // other houses: residential buildings along walkable streets in town, spread out
     const cands = map.buildings.filter((b) => b.use !== 1 && b.use !== 2 && b.floors <= 2 && b.area > 60 && b.area < 400 && map.inTown(b.c[0], b.c[1]));
     const rnd = mulberry32(77);
@@ -833,14 +840,14 @@ export class Interiors {
   async enter(door, { kind = 'casa', seed = door ? door.seed : 1, silent = false, spot = 'entrada', mode = 'sneak' } = {}) {
     const g = this.game, p = g.player;
     if (this.entering) return null; // a second press during the fade
-    if (door && door.x !== undefined && !door.shop && !door.church && g.mode === 'normal' && !this.house) g.police.onHide('house', door); // did the police see you go in?
+    if (door && door.x !== undefined && !door.shop && !door.church && !door.venue && g.mode === 'normal' && !this.house) g.police.onHide('house', door); // did the police see you go in?
     this.entering = true;
     try { if (!silent) await this.fade(true); } finally { this.entering = false; }
     this.leave(true);
     // where to come back to in town if we leave without using the door (mode change, death…)
     if (Math.abs(p.pos.x - INTERIOR_ORIGIN.x) > 500) this.returnTo = { x: p.pos.x, z: p.pos.z, h: p.heading };
-    const vecino = kind === 'casa' && door && !door.owner && !door.shop && door.seed >= 1000;
-    const h = door && door.church ? buildChurch(seed) : door && door.shop ? buildShop(door.shop, seed, undefined, door.name) : door && door.owner === 'annie' && kind === 'casa' ? buildAnnieHouse(seed) : vecino ? buildVecino(seed) : buildHouse(kind, seed);
+    const vecino = kind === 'casa' && door && !door.owner && !door.shop && !door.venue && door.seed >= 1000;
+    const h = door && door.venue ? buildVenue(door.venue, seed) : door && door.church ? buildChurch(seed) : door && door.shop ? buildShop(door.shop, seed, undefined, door.name) : door && door.owner === 'annie' && kind === 'casa' ? buildAnnieHouse(seed) : vecino ? buildVecino(seed) : buildHouse(kind, seed);
     this.house = h;
     this.root.add(h.group);
     this.current = door || { name: 'Casa', seed };
@@ -860,6 +867,9 @@ export class Interiors {
     if (g.perfGrace) g.perfGrace();
     this.life = vecino ? new HouseLife(g, h, door, mode) : null;
     this.church = h.church ? new ChurchLife(g, h, { randomDesc: () => randomDesc(Math.random), massTime, weekday }) : null;
+    this.venueLife = h.cast ? new VenueLife(g, h) : null;
+    if (h.onEnter) setTimeout(() => { if (this.house === h) h.onEnter(g); }, 900);
+    if (h.venue && door && door.name && g.hud.banner) g.hud.banner(door.name, door.sub || '', 'title');
     if (h.church) {
       g.hud.banner && g.hud.banner('Santa María', 'Iglesia parroquial · s. XVI', 'title');
       // you have just pushed through the lobby: its padded leaves swing back behind you; the great door shuts beyond
@@ -904,6 +914,7 @@ export class Interiors {
     this.cracking = null;
     if (this.life) { this.life.dispose(); this.life = null; }
     if (this.church) { this.church.dispose(); this.church = null; }
+    if (this.venueLife) { this.venueLife.dispose(); this.venueLife = null; }
     if (g.windowView) g.windowView.detach();
     if (g.shops && g.shops.here) g.shops.onLeave();
     if (g.decor && g.decor.house) g.decor.leave();
@@ -941,7 +952,7 @@ export class Interiors {
     if (!this.house) {
       // outside: show the nearby door icons (bobbing)
       for (const d of this.doors) {
-        if (d.church) { this.churchDoorStep(d, dt); continue; }
+        if (d.church || (d.venue && d.leaves)) { this.churchDoorStep(d, dt); continue; }
         const on = g.mode === 'normal' && Math.abs(d.x - p.pos.x) < 40 && Math.abs(d.z - p.pos.z) < 40;
         d.spr.visible = on;
         if (on) d.spr.position.y = 2.6 + Math.sin(this.t * 2.2 + d.seed) * 0.08;
@@ -977,6 +988,7 @@ export class Interiors {
     // fireplaces flicker; the people who live here; a safe being forced
     for (const l of this.house.lights) if (l.userData.fire) l.intensity = l.userData.base * (0.75 + Math.sin(this.t * 11) * 0.12 + Math.sin(this.t * 23.7) * 0.08);
     if (this.life) this.life.update(dt);
+    if (this.venueLife) this.venueLife.update(dt);
     if (this.church) {
       this.lobbyStep(dt);
       this.church.update(dt);
@@ -1247,7 +1259,28 @@ export class Interiors {
       case 'pila': return { label: best.label, run: () => { g.hud.notify('Mojas los dedos en el agua bendita y te santiguas.', 'info', 3); g.audio.sfx('pickup', { vol: 0.2 }); } };
       case 'cepillo': return { label: best.label, run: () => { if (g.player.money < 1) { g.hud.notify('No llevas ni un euro suelto.', 'info', 2.5); return; } g.player.money -= 1; g.audio.sfx('money', { vol: 0.5 }); g.hud.notify('Echas un euro en el cepillo. Las monedas suenan en la caja de madera.', 'ok', 3); } };
       case 'vela': return best.stand.free.length ? { label: best.label, run: () => { if (g.player.money < 0.5) { g.hud.notify('No llevas suelto para la vela.', 'info', 2.5); return; } g.player.money -= 0.5; lightCandle(this.house, best.stand); g.audio.sfx('ui_click', { vol: 0.3 }); g.hud.notify('Enciendes una vela y le pides algo en silencio.', 'ok', 3.5); } } : { label: 'Ya no caben más velas', info: true };
-      case 'banco': return { label: best.label, run: () => { g.player.sitOn({ x: best.sx, z: best.sz, y: 0, h: Math.PI / 2, kind: 'banco' }); g.hud.notify('Te sientas en el banco. El silencio de la iglesia, el eco de algún paso…', 'info', 3.5); } };
+      case 'banco': return { label: best.label, run: () => { g.player.sitOn({ x: best.sx, z: best.sz, y: best.sy || 0, h: best.h ?? Math.PI / 2, kind: 'banco' }); if (h.church) g.hud.notify('Te sientas en el banco. El silencio de la iglesia, el eco de algún paso…', 'info', 3.5); } };
+      case 'tiro': return { label: best.label, run: () => {
+        const ok = Math.random() < (best.kind === 'gol' ? 0.72 : 0.45);
+        g.audio.sfx('ball', { vol: 0.8 });
+        if (best.kind === 'gol') g.hud.notify(ok ? '⚽ ¡Goooool! Por la escuadra.' : '⚽ Al palo… ¡uy!', ok ? 'gold' : 'info', 3);
+        else g.hud.notify(ok ? '🏀 ¡Canasta! Ni ha tocado el aro.' : '🏀 Aro y fuera.', ok ? 'gold' : 'info', 3);
+      } };
+      case 'tractor': {
+        const adri = g.save && g.save.preset === 'adri';
+        return { label: adri ? 'Pedir las llaves de tu tractor' : 'Alquilar un tractor para el día <small>(30 €)</small>', run: async () => {
+          if (!adri && g.player.money < 30) { g.hud.notify('No te llega: el alquiler son 30 €.', 'info', 3); return; }
+          if (!adri) { g.player.money -= 30; g.audio.sfx('money', { vol: 0.5 }); }
+          const y = g.world.landmarks.poi.corbacho && g.world.landmarks.poi.corbacho.yard;
+          await this.exit();
+          if (!y) return;
+          const tr = g.fleet.spawn('tractor', y.x, y.z, y.heading, '#3f8f2a', { sleeping: false, keep: true, locked: false });
+          if (tr) { g.player.getIn(tr); g.hud.notify(adri ? '🚜 ¡Ahí lo tienes, Adri! Revisado, engrasado y con el depósito lleno.' : '🚜 Tractor alquilado para todo el día. Trátalo bien, que es de la casa.', 'gold', 5); }
+        } };
+      }
+      case 'compra': return { label: best.label, run: () => { if (g.player.money < best.price) { g.hud.notify('No te llega el dinero.', 'info', 2.5); return; } g.player.money -= best.price; if (g.inv) g.inv.add(best.item); g.audio.sfx('money', { vol: 0.5 }); g.hud.subtitle(best.who || 'En el puesto', best.line); setTimeout(() => g.hud.subtitle(null), 3500); g.hud.notify(`Comprado. Lo llevas en la mochila (${g.input.keyText ? g.input.keyText('I', 10, 'Inventario') : 'I'}).`, 'ok', 3); } };
+      case 'taquilla': return { label: best.label, run: () => { if (g.player.money < 5) { g.hud.notify('No te llega para la entrada.', 'info', 2.5); return; } g.player.money -= 5; g.audio.sfx('money', { vol: 0.5 }); g.hud.notify(g.sky.hour < 20 ? 'Tienes entrada para la función de las 20:00 h: «La vida es sueño».' : 'Entra, que ya ha empezado la función.', 'ok', 4); } };
+      case 'alcalde': return { label: best.label, run: () => { g.player.sitOn({ x: best.sx, z: best.sz, y: best.sy || 0, h: best.h ?? 0, kind: 'banco' }); g.hud.notify('Te sientas en el sillón del alcalde. Desde aquí se ve todo el salón… Se levanta la sesión.', 'ok', 4); } };
       case 'tv': return { label: best.mesh.material.emissiveIntensity > 0.2 ? 'Apagar la tele' : 'Encender la tele', run: () => { const m = best.mesh.material; m.emissiveIntensity = m.emissiveIntensity > 0.2 ? 0 : 0.8; g.audio.sfx('ui_click'); } };
       case 'drawer': return best.used ? { label: 'Cajones vacíos', info: true } : { label: best.label, run: () => { best.used = true; const n = Math.round((5 + Math.floor(Math.random() * 40)) * PERK.luck); g.player.money += n; g.audio.sfx('money'); g.hud.notify(`Encuentras ${n} € en un cajón.`, 'ok', 3); } };
       case 'bed': return { label: best.label, run: () => this.nap() };

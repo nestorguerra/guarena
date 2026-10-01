@@ -77,6 +77,7 @@ function mats(B) {
     blood: m('st_blood', () => new THREE.MeshStandardMaterial({ color: 0x7a1010, roughness: 0.4 })),
     hairD: m('st_hairD', () => new THREE.MeshStandardMaterial({ color: 0x3a2618, roughness: 0.6 })),
     hairL: m('st_hairL', () => new THREE.MeshStandardMaterial({ color: 0x8a5a30, roughness: 0.6 })),
+    hairG: m('st_hairG', () => new THREE.MeshStandardMaterial({ color: 0xb4aca0, roughness: 0.6 })),
     white: m('st_white', () => new THREE.MeshStandardMaterial({ map: estofado('#f0ebe0', '#d8aa48', 1, 3), roughness: 0.6 })),
     blue: m('st_blue', () => new THREE.MeshStandardMaterial({ map: estofado('#24418c', '#e0b24e', 0.8, 5), roughness: 0.55 })),
     black: m('st_black', () => new THREE.MeshStandardMaterial({ map: estofado('#17151a', '#c0c4cc', 0.6, 7), roughness: 0.7 })),
@@ -173,6 +174,9 @@ const DRESS = {
   carmen: { tunic: 'brown', mantle: 'cream', lining: 'liningG', veil: true, crown: true, peana: 'nubes', hands: 'child', face: 'faceM' },
   antonio: { tunic: 'brown', mantle: 'brown', lining: 'lining', hair: 'hairD', beard: false, halo: 'gold', peana: 'dorada', hands: 'child', face: 'face', cord: true },
   juan: { tunic: 'green', mantle: 'red', lining: 'liningG', hair: 'hairL', beard: false, halo: 'gold', peana: 'dorada', hands: 'joined', face: 'face' },
+  // San Gregorio Ostiense, bishop: alb, red cope lined in gold, the mitre and the crozier
+  gregorio: { tunic: 'white', mantle: 'red', lining: 'liningG', hair: 'hairG', beard: true, peana: 'dorada', hands: 'bless', face: 'face', mitre: true, crozier: true },
+  isidro: { tunic: 'brown', mantle: 'green', lining: 'lining', hair: 'hairD', beard: true, halo: 'gold', peana: 'dorada', hands: 'joined', face: 'face' },
 };
 export function statue(B, kind, x, y, z, ry, h = 1.6, k = {}) {
   const M = mats(B);
@@ -238,7 +242,7 @@ export function statue(B, kind, x, y, z, ry, h = 1.6, k = {}) {
   const shY = base + TH - 0.06;
   for (const sx of [-1, 1]) {
     const elbow = [sx * 0.2, shY - 0.27, 0.06];
-    const hand = D.hands === 'joined' ? [sx * 0.03, shY - 0.2, 0.2] : D.hands === 'heart' && sx > 0 ? [0.06, shY - 0.12, 0.17] : D.hands === 'child' && sx < 0 ? [-0.1, shY - 0.27, 0.17] : [sx * 0.15, shY - 0.36, 0.15];
+    const hand = D.hands === 'joined' ? [sx * 0.03, shY - 0.2, 0.2] : D.hands === 'heart' && sx > 0 ? [0.06, shY - 0.12, 0.17] : D.hands === 'child' && sx < 0 ? [-0.1, shY - 0.27, 0.17] : D.hands === 'bless' ? (sx > 0 ? [0.12, shY + 0.02, 0.2] : [-0.2, shY - 0.24, 0.16]) : [sx * 0.15, shY - 0.36, 0.15];
     put(M[D.tunic], tubeAlong([[sx * 0.17, shY, 0.0], elbow, [hand[0] * 0.6 + elbow[0] * 0.4, (hand[1] + elbow[1]) / 2, (hand[2] + elbow[2]) / 2 - 0.02], hand], 0.05, 0.065, 12)); // a sleeve, widening at the cuff
     if (D.hands !== 'joined') put(M.flesh, handAt(1, hand[0], hand[1], hand[2] + 0.04, -0.4, sx * 0.3));
   }
@@ -252,6 +256,23 @@ export function statue(B, kind, x, y, z, ry, h = 1.6, k = {}) {
   if (D.dagger) { const bl = new THREE.BoxGeometry(0.012, 0.22, 0.004); bl.rotateZ(0.5); put(k.silver || M.cloud, bl.translate(0.05, shY - 0.1, 0.17)); put(k.goldPlain || M.ochre, new THREE.BoxGeometry(0.06, 0.012, 0.012).rotateZ(0.5).translate(0.09, shY - 0.035, 0.17)); }
   if (D.hands === 'heart') { put(M.red, sph(0.04, 10, 8).translate(0.0, shY - 0.1, 0.165)); for (let i = 0; i < 10; i++) { const a = (i / 10) * Math.PI * 2, ray = new THREE.BoxGeometry(0.006, 0.05, 0.004); ray.translate(0, 0.06, 0); ray.rotateZ(a); put(k.goldPlain || M.ochre, ray.translate(0, shY - 0.1, 0.17)); } put(k.goldPlain || M.ochre, new THREE.ConeGeometry(0.015, 0.05, 6).translate(0, shY - 0.04, 0.17)); }
   if (D.hands === 'child') child(put, M, -0.12, shY - 0.2, 0.16);
+  // a bishop's mitre: two peaks, front and back, a gold band round it and down the middle
+  if (D.mitre) {
+    const mt = new THREE.CylinderGeometry(0.07, 0.096, 0.24, 24, 6, true), p = mt.attributes.position;
+    for (let i = 0; i < p.count; i++) { const y = p.getY(i) + 0.12, t = y / 0.24, a = Math.atan2(p.getZ(i), p.getX(i)), sz = Math.abs(Math.sin(a)); p.setY(i, p.getY(i) + 0.09 * t * sz * sz); p.setX(i, p.getX(i) * (1 - 0.55 * t * t)); }
+    mt.computeVertexNormals();
+    put(M.white, mt.translate(hx, hy + 0.2, -0.005));
+    const band = new THREE.TorusGeometry(0.097, 0.012, 4, 24); band.rotateX(Math.PI / 2); put(k.goldPlain || M.ochre, band.translate(hx, hy + 0.09, -0.005));
+    for (const sz of [-1, 1]) put(k.goldPlain || M.ochre, new THREE.BoxGeometry(0.03, 0.27, 0.01).translate(hx, hy + 0.23, sz * 0.085 - 0.005));
+    put(M.cream, sph(0.1, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2).scale(1, 0.4, 1).translate(hx, hy + 0.08, -0.005)); // (the head inside it)
+  }
+  // the crozier: a tall gilt staff, its crook curling outwards
+  if (D.crozier) {
+    const cx2 = -0.22, cz2 = 0.16;
+    put(k.goldPlain || M.ochre, new THREE.CylinderGeometry(0.011, 0.013, 1.62, 8).translate(cx2, base + 0.85, cz2));
+    put(k.goldPlain || M.ochre, sph(0.03, 10, 8).translate(cx2, base + 1.67, cz2));
+    const crook = new THREE.TorusGeometry(0.07, 0.012, 6, 18, Math.PI * 1.45); crook.rotateZ(-0.25); put(k.goldPlain || M.ochre, crook.translate(cx2 - 0.07, base + 1.74, cz2));
+  }
   if (D.staff) { put(M.wood, new THREE.CylinderGeometry(0.008, 0.009, 1.0, 6).translate(0.2, base + 0.62, 0.15)); for (let i = 0; i < 5; i++) put(M.white, sph(0.025, 8, 6).translate(0.2 + (i % 2 ? 0.02 : -0.015), base + 1.12 + i * 0.035, 0.15)); }
 }
 // the Child Jesus, sitting on an arm (x, y, z: where he sits)

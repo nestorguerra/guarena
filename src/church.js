@@ -82,13 +82,13 @@ function goldTexture_(seed = 3) {
   for (let i = 0; i < 90; i++) { x.fillStyle = `rgba(${r() < 0.5 ? '140,66,26' : '100,56,22'},${0.12 + r() * 0.2})`; x.beginPath(); x.ellipse(r() * S2, r() * S2, 1 + r() * 3.5, 1 + r() * 2, r() * 3, 0, 6.283); x.fill(); }
   return canvasTex(c, { repeat: true, toon: false });
 }
-const goldTexture = (seed = 3) => memo('gold' + seed, () => goldTexture_(seed));
+export const goldTexture = (seed = 3) => memo('gold' + seed, () => goldTexture_(seed));
 const cofferTexture = () => memo('coffer', cofferTexture_);
 const viaCrucisTexture = (n) => memo('via' + n, () => viaCrucisTexture_(n));
 const plaqueTexture = () => memo('plaque', plaqueTexture_);
 // what the gold reflects: the warm church round it (whitewash lit by candles above, dark wood below, a bright window)
 let _goldEnv = null;
-function goldEnv() {
+export function goldEnv() {
   if (_goldEnv) return _goldEnv;
   const c = document.createElement('canvas'); c.width = 256; c.height = 128;
   const x = c.getContext('2d');

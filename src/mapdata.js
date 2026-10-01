@@ -42,8 +42,8 @@ export class MapData {
         w: e.w / 10, sw: e.sw / 10, oneway: e.o, name: e.n >= 0 ? this.names[e.n] : '', dirt: !!e.d, facade: e.f / 10,
         drive: DRIVE_CLASSES.has(cls), walk: true, walkOnly: WALK_ONLY.has(cls),
       };
-      ed.speed = { primary: 13.5, secondary: 13, tertiary: 12, primary_link: 9, tertiary_link: 9, unclassified: 10, residential: 8.5, living_street: 5.5, service: 5.5, track: 7 }[cls] || 6;
-      if (ed.w < 5.2 && ed.speed > 7.5) ed.speed = 7.5;
+      ed.speed = { primary: 12.5, secondary: 12, tertiary: 11, primary_link: 8.5, tertiary_link: 8.5, unclassified: 9, residential: 7.5, living_street: 5, service: 5, track: 7 }[cls] || 6; // (town speeds: 30–45 km/h)
+      if (ed.w < 5.2 && ed.speed > 6.5) ed.speed = 6.5;
       return ed;
     });
     for (const e of this.edges) {

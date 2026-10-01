@@ -24,6 +24,8 @@ export function paintingTexture(kind, { w = 288, h = 432, seed = 1, fresco = fal
   else if (kind === 'asuncion') P.assumption();
   else if (kind === 'bautismo') P.baptism();
   else if (kind === 'domingo' || kind === 'catalina') P.dominican(kind);
+  else if (kind === 'retrato') P.portrait(seed);
+  else if (kind === 'vegas') P.vegas();
   else P.apostle(APOSTLES.pedro);
   if (fresco) P.fresco(); else P.age();
   const t = new THREE.CanvasTexture(c);
@@ -507,6 +509,33 @@ class Painter {
   dominican(kind) {
     this.ground({ glow: 0.4, horizon: 0.9, tone: [150, 130, 100] });
     this.figureStanding(this.W * 0.5, this.H * 0.12, this.H * 0.78, kind === 'catalina' ? { tunic: '#f2efe6', mantle: '#1e1e22', veil: true, look: 0.3 } : { tunic: '#f2efe6', mantle: '#1e1e22', hair: '#3a2416', look: -0.3 });
+  }
+  // ------------------------------------------------------------ a portrait of a mayor gone (dark suit, a sash now and then)
+  portrait(seed) {
+    const x = this.x, W = this.W, H = this.H, r = this.r, s = H / 432;
+    const g = x.createRadialGradient(W * 0.4, H * 0.35, 4, W * 0.5, H * 0.5, H * 0.7); g.addColorStop(0, '#6a5a48'); g.addColorStop(1, '#1e1812');
+    x.fillStyle = g; x.fillRect(0, 0, W, H);
+    const suit = [[40, 40, 46], [30, 34, 48], [56, 48, 40]][seed % 3], cx = W * 0.5, hs = H * 0.26, hy = H * 0.38;
+    this.smooth([[cx - W * 0.5, H], [cx - W * 0.44, H * 0.74], [cx - W * 0.16, H * 0.6], [cx + W * 0.16, H * 0.6], [cx + W * 0.44, H * 0.74], [cx + W * 0.5, H]]); this.shade(suit, cx - W * 0.45, 0, cx + W * 0.45, 0, 1.4, 0.5);
+    x.fillStyle = '#f2f0ea'; this.path([[cx - W * 0.1, H * 0.6], [cx + W * 0.1, H * 0.6], [cx, H * 0.86]]); x.fill(); // the shirt
+    x.fillStyle = ['#7a1420', '#1a2a5a', '#2a2a2a'][(seed >> 1) % 3]; this.path([[cx - W * 0.025, H * 0.62], [cx + W * 0.025, H * 0.62], [cx + W * 0.03, H * 0.85], [cx, H * 0.88], [cx - W * 0.03, H * 0.85]]); x.fill(); // the tie
+    if (seed % 2) { x.strokeStyle = 'rgba(200,40,50,0.9)'; x.lineWidth = 10 * s; x.beginPath(); x.moveTo(cx - W * 0.35, H * 0.7); x.lineTo(cx + W * 0.25, H); x.stroke(); x.strokeStyle = 'rgba(240,200,60,0.9)'; x.lineWidth = 3 * s; x.stroke(); } // the sash of office
+    x.fillStyle = rgb(SKIN, 0.8); x.fillRect(cx - W * 0.06, hy + hs * 0.3, W * 0.12, hs * 0.5);
+    this.head(cx, hy, hs, { hair: ['#2a2018', '#6a6460', '#c8c2b8', '#3a2a1e'][seed % 4], beard: seed % 5 === 0 ? 'short' : null, bald: seed % 3 === 1, old: seed % 2 === 0, lookX: -1 });
+    this.soften(0.6);
+  }
+  // ------------------------------------------------------------ the Vegas Altas: fields to the horizon, the Guadiana, the town and its tower
+  vegas() {
+    const x = this.x, W = this.W, H = this.H, r = this.r;
+    const sky = x.createLinearGradient(0, 0, 0, H * 0.55); sky.addColorStop(0, '#7aa6c8'); sky.addColorStop(1, '#f0dcb0'); x.fillStyle = sky; x.fillRect(0, 0, W, H);
+    for (let i = 0; i < 9; i++) { const cx = r() * W, cy = H * (0.08 + r() * 0.25), rr = H * (0.05 + r() * 0.06), cg = x.createRadialGradient(cx, cy, 1, cx, cy, rr * 2); cg.addColorStop(0, 'rgba(255,250,240,0.7)'); cg.addColorStop(1, 'rgba(255,250,240,0)'); x.fillStyle = cg; x.beginPath(); x.ellipse(cx, cy, rr * 2, rr, 0, 0, 6.283); x.fill(); }
+    const hz = H * 0.55, cols = ['#b8a05a', '#8a9a48', '#c8b070', '#6a8a3a', '#a08048', '#d0c080'];
+    for (let j = 0; j < 7; j++) { const y0 = hz + (H - hz) * Math.pow(j / 7, 1.6), y1 = hz + (H - hz) * Math.pow((j + 1) / 7, 1.6); for (let i = 0; i < 5; i++) { x.fillStyle = cols[(i + j * 2) % cols.length]; x.beginPath(); x.moveTo(W * (i / 5) - (y0 - hz) * 0.6, y0); x.lineTo(W * ((i + 1) / 5) - (y0 - hz) * 0.6, y0); x.lineTo(W * ((i + 1) / 5) + (y1 - hz) * 0.9, y1); x.lineTo(W * (i / 5) + (y1 - hz) * 0.9, y1); x.fill(); } }
+    x.strokeStyle = '#6a9ab8'; x.lineWidth = H * 0.025; x.beginPath(); x.moveTo(0, H * 0.82); x.bezierCurveTo(W * 0.3, H * 0.72, W * 0.6, H * 0.9, W, H * 0.7); x.stroke(); // the river
+    x.fillStyle = '#efe8dc'; for (let i = 0; i < 16; i++) x.fillRect(W * (0.55 + i * 0.018), hz - H * (0.01 + (i % 3) * 0.008), W * 0.016, H * (0.02 + (i % 3) * 0.008));
+    x.fillStyle = '#b89870'; x.fillRect(W * 0.6, hz - H * 0.09, W * 0.022, H * 0.09); x.fillStyle = '#8a6a48'; x.beginPath(); x.arc(W * 0.611, hz - H * 0.09, W * 0.012, Math.PI, 0); x.fill(); // the tower of Santa María
+    this.strokes(0, hz, W, H, [150, 130, 70], 300, H * 0.02, 0, 0.1, 0.6, 1.3);
+    this.soften(0.7);
   }
   // ------------------------------------------------------------ the years: amber varnish, cracks, the weave, dark edges
   age() {

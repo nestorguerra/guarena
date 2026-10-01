@@ -49,9 +49,9 @@ import { Net } from './net.js';
 import { clamp, lerp, ringCentroid, safeStorage } from './util.js';
 
 export const QUALITY = {
-  alta: { name: 'Alta', texSize: 512, photo: 1024, aniso: 8, shadows: 2, trees: 6500, traffic: 20, peds: 30, bloom: true, pr: 1.5, parkRadius: 220, carCapacity: 150, facade3d: 120 },
-  media: { name: 'Media', texSize: 512, photo: 512, aniso: 4, shadows: 1, trees: 4200, traffic: 16, peds: 22, bloom: false, pr: 1.0, parkRadius: 180, carCapacity: 130, facade3d: 80 },
-  baja: { name: 'Baja', texSize: 256, photo: 256, aniso: 2, shadows: 0, trees: 1800, traffic: 10, peds: 14, bloom: false, pr: 0.8, parkRadius: 140, carCapacity: 110, facade3d: 0 },
+  alta: { name: 'Alta', texSize: 512, photo: 1024, aniso: 8, shadows: 2, trees: 6500, traffic: 13, peds: 30, bloom: true, pr: 1.5, parkRadius: 220, carCapacity: 150, facade3d: 120 },
+  media: { name: 'Media', texSize: 512, photo: 512, aniso: 4, shadows: 1, trees: 4200, traffic: 11, peds: 22, bloom: false, pr: 1.0, parkRadius: 180, carCapacity: 130, facade3d: 80 },
+  baja: { name: 'Baja', texSize: 256, photo: 256, aniso: 2, shadows: 0, trees: 1800, traffic: 7, peds: 14, bloom: false, pr: 0.8, parkRadius: 140, carCapacity: 110, facade3d: 0 },
 };
 
 export class Game {
@@ -546,7 +546,7 @@ export class Game {
       const qh = Math.floor(this.sky.hour * 4);
       if (qh !== this.hourPrev) {
         this.hourPrev = qh;
-        const inChurch = !!(this.interior && this.interior.church); // (inside it: only the chant)
+        const inChurch = !!(this.interior && (this.interior.church || this.interior.chapel)); // (inside it: only the chant)
         if (qh % 4 === 0) { const h = Math.floor(this.sky.hour) % 12 || 12; if (!inChurch) this.audio.bells(h); this.world.landmarks.bellSwing = 1; }
         else if (qh % 4 === 2 && !inChurch) this.audio.bells(0);
       }
@@ -557,11 +557,11 @@ export class Game {
         if (!this.lofi) this.lofi = new LoFi(this.audio);
         this.lofi.enabled = this.save.lofi !== false;
         const radio = this.audio._radioOn || (this.fm && this.fm.where);
-        this.lofi.update(dt, (p.mode === 'foot' || p.mode === 'sit') && !radio && !(this.interior && this.interior.church));
+        this.lofi.update(dt, (p.mode === 'foot' || p.mode === 'sit') && !radio && !(this.interior && (this.interior.church || this.interior.chapel)));
       }
       // inside Santa María, Gregorian chant far off in the stone (softer while mass is said)
       if (!this.chant) this.chant = new Chant(this.audio);
-      this.chant.update(dt, !!(this.interior && this.interior.church), this.interiors.church && this.interiors.church.mass ? 0.45 : 1);
+      this.chant.update(dt, !!(this.interior && (this.interior.church || this.interior.chapel)), this.interior && this.interior.chapel ? 0.6 : this.interiors.church && this.interiors.church.mass ? 0.45 : 1);
       p.update(dt, input, this.cam.forwardYaw);
       this.net.update(dt); // friends (multiplayer): their state in, ours out
       const inCar = !!p.vehicle;
@@ -681,6 +681,8 @@ export class Game {
       a.horn(false);
     }
     a.setAmbient({ hour: this.sky.hour, town: this.map.inTown(p.pos.x, p.pos.z) ? 1 : 0.25, indoor: this.interior ? (this.interior.church ? 1 : 0.65) : 0 });
+    const fu = this.world.landmarks.poi.fuente; // the fountain's water, all the time (not heard from inside anywhere)
+    if (fu && a.ready) a.loopAt('fuente', { x: fu.x, z: fu.z, kind: 'fuente', vol: 0.55, ref: 5, max: 60, on: !this.interior });
     this.storkT = (this.storkT || 20) - dt;
     const tw = this.world.landmarks.poi.churchTower;
     if (tw && this.storkT <= 0) {

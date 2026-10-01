@@ -542,7 +542,7 @@ ${GROUND_GLSL}`)
     float tc = (gHash2(vec2(cc, eid + 5.0)) * 2.0 - 1.0) * hw, tl = hw * (0.35 + 0.8 * gHash2(vec2(cc, eid + 6.0)));
     crack = max(crack, gLine(sc, 0.004) * step(gHash2(vec2(cc, eid + 3.0)), 0.2 + dmg * 0.55) * step(at, hw - 0.1) * (1.0 - smoothstep(tl * 0.8, tl, abs(t - tc))));
     float an = gNoise(vec2(s * 0.13, t * 0.4) + eid * 3.1) * 0.7 + gNoise(vec2(s * 0.4, t * 0.9) + eid) * 0.3;
-    float thr = 1.0 - dmg * 0.34;
+    float thr = 1.0 - dmg * 0.22;
     if (an > thr && fine > 0.0) {
       // alligator cracking: irregular (warped) cells, only in tired patches
       vec2 wq = vec2(s, t) * 2.3 + vec2(gNoise(vec2(s, t) * 1.7), gNoise(vec2(t, s) * 1.9)) * 0.9;
@@ -636,10 +636,10 @@ ${GROUND_GLSL}`)
     col *= 1.0 - 0.28 * oil * (0.5 + 0.5 * gNoise(wp * 6.0));
     gGRough = oil > 0.3 ? mix(gGRough < 0.0 ? 0.95 : gGRough, 0.8, oil) : gGRough;
   } else if (layer < 1.5) {
-    // junction discs & parking: cracks only
-    vec2 v = gVor(wp * 0.9);
+    // junction discs & parking: a few fine cracks here and there (not the broken-tile look of old)
+    vec2 v = gVor(wp * 2.2);
     float an = gNoise(wp * 0.07);
-    col *= 1.0 - 0.45 * (1.0 - smoothstep(0.012, 0.04 + fwidth(v.x), v.x)) * step(0.62 - age * 0.25, an) * fine;
+    col *= 1.0 - 0.2 * (1.0 - smoothstep(0.01, 0.03 + fwidth(v.x), v.x)) * step(0.88 - age * 0.1, an) * fine;
   }
   // ---- sidewalk tiles (30 cm, on the texture grid): replaced, cracked, stained and chewing gum; yards away from streets
   if (layer > 1.5 && layer < 2.5) {

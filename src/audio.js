@@ -725,6 +725,7 @@ export class GameAudio {
     this._vol = { master: 0.8, music: 0.55, sfx: 0.9 };
     this._voices = [];
     this._sirens = new Map();
+    this._loops = new Map(); // persistent sounds of places (a fountain's water), placed round the listener every frame
     this._waves = new Map();
     this._curves = new Map();
     this._eng = null;          // latest state passed to setEngine()
@@ -906,6 +907,7 @@ export class GameAudio {
       if (this._horn && !this._hornOn && (this._hornIdle += dt) > 0.6) { this._horn.k.stop(t); this._horn = null; }
       for (const s of this._sirens.values()) s.update(dt, t);
       for (const v of this._voices) if (v.sp && t - v.t > 0.25) this._place(v.sp, v.x, v.z, t, 0.06);
+      for (const L of this._loops.values()) { this._place(L.sp, L.x, L.z, t, 0.12); glide(L.out.gain, this._paused ? 0 : L.vol * (L.on ? 1 : 0), t, 0.4); }
       this._ambient.update(dt, t);
       this._bellTick(t);
     } catch (e) { this._warn(e); }
@@ -1036,6 +1038,29 @@ export class GameAudio {
     this._sirens.delete(key);
   }
   sirenStopAll() { for (const key of [...this._sirens.keys()]) this.sirenStop(key); }
+
+  // ── Places that sound all the time (a fountain): one loop each, on while the listener is near enough ──
+  loopAt(id, o = {}) {
+    if (!this.ready) return;
+    this._safe(() => {
+      let L = this._loops.get(id);
+      if (!L) {
+        const c = this.ctx, t = c.currentTime, k = new Kit(c), sp = this._spatial(k, this.world, o.ref || 6, o.max || 70, o.rev || 0.15), out = k.gain(0);
+        out.connect(sp.input);
+        if (o.kind === 'fuente') {
+          // water falling into water: a bright splashing hiss, a softer murmur under it, both breathing a little
+          const hi = k.buf(this.bank.get('pink'), t, undefined, 1, true, Math.random() * 2), bp = k.filter('bandpass', 2600, 0.8), g1 = k.gain(0.5);
+          const lo = k.buf(this.bank.get('brown'), t, undefined, 1, true, Math.random() * 2), lp = k.filter('lowpass', 700, 0.7), g2 = k.gain(0.7);
+          chain(hi, bp, g1, out); chain(lo, lp, g2, out);
+          const lfo = k.osc('sine', 0.37, t), lg = k.gain(0.18); chain(lfo, lg, g1.gain);
+        }
+        L = { k, sp, out, x: num(o.x, 0), z: num(o.z, 0), vol: num(o.vol, 0.6), on: true };
+        this._place(sp, L.x, L.z, t, 0, true);
+        this._loops.set(id, L);
+      }
+      L.on = o.on !== false;
+    });
+  }
 
   // ── Ambient, church bells and storks ──
   setAmbient(o) {
@@ -1547,6 +1572,14 @@ const SFX = {
   yelp_m(A, v, t, p) { yelp(A, v, t, p, 170 * p * rnd(0.92, 1.1), [[750, 6, 1], [1150, 7, 0.6], [2500, 8, 0.25]]); },
   yelp_f(A, v, t, p) { yelp(A, v, t, p, 330 * p * rnd(0.92, 1.1), [[850, 6, 1], [1400, 7, 0.55], [2900, 8, 0.25]]); },
   whistle(A, v, t, p) { blast(A, v, t, p, 0.16); blast(A, v, t + 0.24, p, 0.6); },
+  ball(A, v, t, p) { // a ball on a sports floor: a rubbery thud, then smaller and quicker bounces
+    let a = 1, tt = t, dt = 0.32;
+    for (let i = 0; i < 5; i++, tt += dt, dt *= 0.72, a *= 0.6) {
+      const o = tone(v, 'sine', 150 * p, tt, 0.12); sweep(o.frequency, tt, 150 * p, 85 * p, 0.08);
+      chain(o, eg(v, tt, a * 0.9, 0.002, 0.07), v.out);
+      chain(nz(A, v, tt, 0.05), v.k.filter('bandpass', 1300 * p, 2), eg(v, tt, a * 0.35, 0.001, 0.03), v.out);
+    }
+  },
   splash(A, v, t, p) { // thump, falling noise wash, bubbles
     const o = tone(v, 'sine', 110 * p, t, 0.3);
     sweep(o.frequency, t, 110 * p, 45 * p, 0.2);
@@ -1568,7 +1601,7 @@ const SFX_META = {
   alarm: { ref: 10, max: 220, rev: 0.12 }, whistle: { ref: 12, max: 250, rev: 0.15, vol: 0.8 }, glass: { rev: 0.1 },
   footstep: { ref: 3, max: 45, vol: 0.5 }, jump: { ref: 4, max: 50, vol: 0.6 }, land: { ref: 4, max: 60, vol: 0.7 },
   punch: { ref: 4, max: 60, vol: 0.7 }, punch_hit: { ref: 5, max: 80 }, door_open: { ref: 5, max: 70, vol: 0.7 }, door_close: { ref: 5, max: 90, vol: 0.8 },
-  car_break_in: { ref: 4, max: 50, vol: 0.7 }, bin_hit: { ref: 8, max: 120, rev: 0.08 }, splash: { ref: 8, max: 120, rev: 0.08 },
+  car_break_in: { ref: 4, max: 50, vol: 0.7 }, bin_hit: { ref: 8, max: 120, rev: 0.08 }, splash: { ref: 8, max: 120, rev: 0.08 }, ball: { ref: 8, max: 90, rev: 0.25 },
   yelp_m: { ref: 6, max: 90, vol: 0.7 }, yelp_f: { ref: 6, max: 90, vol: 0.7 },
   mission_start: { rev: 0.25 }, mission_pass: { rev: 0.2 }, mission_fail: { rev: 0.25 }, wasted: { rev: 0.4 }, busted: { rev: 0.25 },
   z_growl: { ref: 4, max: 60, rev: 0.35 }, z_shriek: { ref: 6, max: 90, rev: 0.4 }, z_gurgle: { ref: 3, max: 30, rev: 0.25 }, z_drag: { ref: 2, max: 22, vol: 0.6 },

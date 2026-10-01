@@ -54,6 +54,8 @@ export class Fleet {
     }
     // motorbikes at the kerb and bicycles against the walls (placed with the street life): rideable
     for (const t of (this.game.world && this.game.world.twoWheelSpots) || []) this.spots.push({ x: t.x, z: t.z, heading: t.heading, model: t.model, color: typeof t.color === 'number' ? '#' + t.color.toString(16).padStart(6, '0') : t.color, vehicle: null, taken: false, twoWheel: true });
+    // vehicles placed by the landmarks (the new tractors on Agrícola Corbacho's forecourt)
+    for (const t of (this.game.world && this.game.world.landmarks && this.game.world.landmarks.vehicleSpots) || []) if (MODELS[t.model]) this.spots.push({ x: t.x, z: t.z, heading: t.heading, model: t.model, color: t.color, vehicle: null, taken: false, display: true });
     // parking lots: cars in their painted bays, nose in (about three in four taken)
     for (const b of parkingBays(map)) {
       if (rnd() > 0.74) continue;
@@ -142,6 +144,10 @@ export class Fleet {
   }
 
   surfaceAt(x, z) {
+    const b = this.map.bounds;
+    if (x < b.x0 || x > b.x1 || z < b.z0 || z > b.z1) { // (out past the map: the road to Mérida, or the fields)
+      for (const r of (this.game.world && this.game.world.landmarks && this.game.world.landmarks.extraRoads) || []) if (r.on(x, z)) return { dirt: false, edge: null, onRoad: true };
+    }
     const q = this.map.nearestEdge(x, z, 20);
     if (q && q.d < q.edge.w / 2 + 0.5) return { dirt: q.edge.dirt, edge: q.edge, onRoad: true };
     return { dirt: !this.map.inTown(x, z), edge: q ? q.edge : null, onRoad: false };

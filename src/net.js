@@ -10,6 +10,7 @@ import { buildGun } from './gunmodels.js';
 import { GunRig } from './gunrig.js';
 import { MODELS } from './vehicles.js';
 import { clamp, lerp, wrapAngle } from './util.js';
+import { Mesh, onlinePossible, roomFromHash, ONLINE_MAX } from './online.js';
 
 const SEND_DT = 1 / 12;   // state updates per second
 const DELAY = 0.15;       // remote players are drawn this far in the past, between two known states
@@ -40,8 +41,26 @@ export class Net {
     this.name = 'Jugador'; this.desc = null;
     this.lastWp = null; this.remoteWp = null; this.hostHour = null;
     this.chat = { open: false, lines: [] };
+    // online (from GitHub, no server of ours): the room in the link (#sala-XXXXX), or the public one everybody shares
+    this.mesh = null; this.room = roomFromHash(); this.invited = !!this.room; this.onlineError = false;
     this.bindChat();
-    addEventListener('pagehide', () => { if (this.sid) { try { navigator.sendBeacon('/mp/leave', JSON.stringify({ sid: this.sid })); } catch (e) { /* gone */ } } });
+    addEventListener('beforeunload', () => { if (this.mesh) this.mesh.bye(); });
+    addEventListener('pagehide', () => {
+      if (this.mesh) this.mesh.bye();
+      if (this.sid) { try { navigator.sendBeacon('/mp/leave', JSON.stringify({ sid: this.sid })); } catch (e) { /* gone */ } }
+    });
+  }
+  get online() { return !!(this.info && this.info.online); }
+  // the link that brings a friend into this room
+  inviteLink() { return location.origin + location.pathname + (this.room ? '#sala-' + this.room : ''); }
+  // another room (a private one, or back to the public one): out of this one and into that
+  async switchRoom(code, name, desc) {
+    if (this.mesh || this.connected) this.leave();
+    this.room = code || null;
+    try { history.replaceState(null, '', location.pathname + location.search + (this.room ? '#sala-' + this.room : '')); } catch (e) { /* sandboxed */ }
+    this.info = { online: true, room: this.room, max: ONLINE_MAX };
+    this.emit('lobby');
+    return this.connect(name, desc);
   }
   get active() { return this.connected && this.inGame; }
   get isHost() { return this.connected && this.id != null && this.hostId === this.id; }
@@ -51,12 +70,15 @@ export class Net {
 
   // ------------------------------------------------------------ is this page served by the Guareña server?
   async probe() {
+    if (this.online && this.available) return true;
     if (!/^https?:$/.test(location.protocol)) return (this.available = false);
     try {
       const r = await fetch('/mp/info', { cache: 'no-store' });
       const j = r.ok ? await r.json() : null;
       this.info = j && j.guarena ? j : null;
     } catch (e) { this.info = null; }
+    // no Guareña server behind this page (GitHub Pages): online, browser to browser
+    if (!this.info && onlinePossible()) this.info = { online: true, room: this.room, max: ONLINE_MAX };
     return (this.available = !!this.info);
   }
   // ask the server for a public link (a tunnel); the lobby shows it as soon as it is ready
@@ -77,9 +99,12 @@ export class Net {
     this.name = name; this.desc = desc;
     const hello = { t: 'hello', name, desc: slimDesc(desc) };
     try {
-      try { this.useWS(await this.openWS()); this.send(hello); }
-      catch (e) { await this.openPoll(hello); }
-      await waitFor(() => this.connected || this.fullError, 7000);
+      if (this.online) await this.openMesh(name, desc);
+      else {
+        try { this.useWS(await this.openWS()); this.send(hello); }
+        catch (e) { await this.openPoll(hello); }
+        await waitFor(() => this.connected || this.fullError, 7000);
+      }
     } catch (e) { this.transport = null; }
     this.connecting = false;
     this.emit('lobby');
@@ -94,6 +119,13 @@ export class Net {
       ws.onopen = () => { if (done) return; done = true; clearTimeout(to); resolve(ws); };
       ws.onerror = fail;
     });
+  }
+  async openMesh(name, desc) {
+    this.onlineError = false;
+    const mesh = new Mesh((m) => { if (this.mesh === mesh) this.recv(m); }, () => this.emit('lobby'));
+    this.mesh = mesh; this.transport = 'mesh';
+    try { await mesh.start(this.room || 'plaza', name, slimDesc(desc)); }
+    catch (e) { if (this.mesh === mesh) { this.mesh = null; this.transport = null; } this.onlineError = true; }
   }
   useWS(ws) {
     this.ws = ws; this.transport = 'ws';
@@ -125,7 +157,8 @@ export class Net {
     }
   }
   send(obj) {
-    if (this.transport === 'ws') { if (this.ws && this.ws.readyState === 1) this.ws.send(JSON.stringify(obj)); }
+    if (this.transport === 'mesh') { if (this.mesh) this.mesh.send(obj); }
+    else if (this.transport === 'ws') { if (this.ws && this.ws.readyState === 1) this.ws.send(JSON.stringify(obj)); }
     else if (this.transport === 'poll') {
       if (obj.t === 'st') for (let i = this.outbox.length - 1; i >= 0; i--) if (this.outbox[i].t === 'st') this.outbox.splice(i, 1);
       this.outbox.push(obj);
@@ -134,8 +167,9 @@ export class Net {
   }
   // leave the room (back to the menu from the lobby, or the page closes)
   leave() {
-    const sid = this.sid, ws = this.ws;
-    this.transport = null; this.ws = null; this.sid = null;
+    const sid = this.sid, ws = this.ws, mesh = this.mesh;
+    this.transport = null; this.ws = null; this.sid = null; this.mesh = null;
+    if (mesh) mesh.close();
     if (ws) { ws.onclose = null; try { ws.close(); } catch (e) { /* closed */ } }
     if (sid) { try { navigator.sendBeacon ? navigator.sendBeacon('/mp/leave', JSON.stringify({ sid })) : fetch('/mp/leave', { method: 'POST', body: JSON.stringify({ sid }) }); } catch (e) { /* gone */ } }
     this.reset();
@@ -476,6 +510,8 @@ class Remote {
     this.off = Math.min(...this.offs);
     // states are kept in the sender's time, so bursts and late arrivals slot in without being thrown away
     if (this.buf.length && m.ts <= this.buf[this.buf.length - 1].ts) return;
+    // how often their states come (5 a second when they reach us through the online relay, 12 directly)
+    if (this.buf.length) { const d = m.ts - this.buf[this.buf.length - 1].ts; if (d > 0 && d < 2) this.gap = this.gap ? this.gap * 0.9 + d * 0.1 : d; }
     this.buf.push(m);
     if (this.buf.length > 40) this.buf.shift();
     this.last = m;
@@ -483,7 +519,7 @@ class Remote {
   update(dt, now) {
     const g = this.g, net = this.net;
     if (!this.buf.length) return;
-    const t = now - this.off - DELAY; // in the sender's clock
+    const t = now - this.off - Math.max(DELAY, Math.min(0.6, (this.gap || 0) * 1.3 + 0.03)); // in the sender's clock
     let a = this.buf[0], b = null;
     for (let i = this.buf.length - 1; i >= 0; i--) if (this.buf[i].ts <= t) { a = this.buf[i]; b = this.buf[i + 1] || null; break; }
     const k = b ? clamp((t - a.ts) / Math.max(1e-3, b.ts - a.ts), 0, 1) : 0;

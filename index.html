@@ -483,6 +483,8 @@ input[type=range] { width: 150px; accent-color: var(--trigo); }
 #mpPlayers li em { font-style: normal; font-family: var(--cond); font-weight: 700; font-size: 14px; letter-spacing: 0.05em; text-transform: uppercase; color: rgba(251,250,246,0.55); }
 #mpPlayers li em.ok { color: #7fe08f; }
 .mpHint { margin: 0; font-size: 14px; color: rgba(251,250,246,0.7); }
+.mpRoomBtns { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.mpCard small.mpPriv { margin-top: 10px; font-size: 12px; color: rgba(251,250,246,0.5); }
 #mpReady.on { background: #2e7d4a; box-shadow: 0 4px 0 #1d5431; }
 #mpHud { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; margin-top: 6px; font-family: var(--cond); font-weight: 800; font-size: 16px; letter-spacing: 0.03em; text-shadow: 0 2px 4px rgba(0,0,0,0.85); }
 #mpHud[hidden] { display: none; }
@@ -786,6 +788,11 @@ body.contemplar #hud .tr, body.contemplar #hud .radarWrap, body.contemplar #hud 
   <div class="mpBox">
     <h2>Multi<span>jugador</span></h2>
     <p class="mpStatus" id="mpStatus">Buscando el servidor…</p>
+    <div class="mpCard" id="mpGo" hidden>
+      <b class="t">Partida online</b>
+      <p style="margin:6px 0 10px">Desde aquí no se puede conectar. Abre Guareña en su página de GitHub: allí cualquiera puede entrar en la partida y ver a los demás jugadores.</p>
+      <a class="btn" id="mpGoLink" href="https://nestorguerra.github.io/guarena/" target="_blank" rel="noopener">Abrir Guareña online</a>
+    </div>
     <div class="mpCard" id="mpOnline" hidden>
       <b class="t">Multijugador en internet</b>
       <p style="margin:6px 0 10px">El servidor de Guareña está siempre en línea: ábrelo, pásale el mismo enlace a tus amigos y salís juntos desde la Plaza de España.</p>
@@ -801,6 +808,13 @@ body.contemplar #hud .tr, body.contemplar #hud .radarWrap, body.contemplar #hud 
       </ol>
     </div>
     <div id="mpYes" hidden>
+      <div class="mpCard" id="mpRoom" hidden>
+        <b class="t" id="mpRoomT">Sala pública</b>
+        <div class="mpLink"><span>Enlace</span><code id="mpRoomLink">—</code><button class="mini" id="mpCopyRoom">Copiar</button></div>
+        <small id="mpRoomNote">Pásaselo a tus amigos (por WhatsApp, por ejemplo): quien lo abra y entre en Multijugador aparece contigo en Guareña.</small>
+        <div class="mpRoomBtns"><button class="mini" id="mpPrivate">Crear sala privada</button><button class="mini" id="mpPublic" hidden>Ir a la sala pública</button></div>
+        <small class="mpPriv">Conexión directa entre navegadores: quien esté en tu sala puede ver tu dirección IP, como en cualquier juego en red.</small>
+      </div>
       <div class="mpCard" id="mpInvite">
         <b class="t">Invita a tu amigo</b>
         <div class="mpLink" id="mpLanRow"><span>Misma WiFi</span><code id="mpLan">…</code><button class="mini" id="mpCopyLan">Copiar</button></div>
@@ -830,6 +844,7 @@ body.contemplar #hud .tr, body.contemplar #hud .radarWrap, body.contemplar #hud 
         <button id="pMap">Mapa</button>
         <button id="pChars">Cambiar personaje</button>
         <button id="pCancel">Abandonar misión</button>
+        <button id="pOnline">Jugar online</button>
         <button id="pMenu">Menú principal</button>
       </div>
     </div>

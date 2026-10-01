@@ -19,12 +19,25 @@ visual › Realista*.
 ## Jugar
 
 - **En el navegador:** https://nestorguerra.github.io/guarena/
-- **Multijugador en internet:** el servidor de la sala (ver [El servidor en internet](#el-servidor-en-internet-render)):
-  ábrelo, entra en *Multijugador* y pásales el mismo enlace a tus amigos. Si nadie ha jugado en un rato, tarda
-  cerca de un minuto en despertar.
+- **Multijugador online, sin servidor:** en esa misma página, *Multijugador* (o *Pausa › Jugar online*). Entras en
+  la sala pública: ves por la calle a todos los que estén jugando online en ese momento, con su nombre encima, en el
+  radar y en el mapa, y podéis hablar por el chat (T). Con *Crear sala privada* tienes un enlace propio
+  (`…/guarena/#sala-XXXXX`) que solo conoce quien tú se lo mandes. Ver [Cómo funciona el online](#cómo-funciona-el-online).
 
 Funciona en Chrome, Edge, Safari y Firefox con WebGL2, en ordenador y en móvil (con teclado y ratón, mando o
 pantalla táctil). La primera vez necesita internet para descargar la librería 3D (three.js).
+
+## Cómo funciona el online
+
+GitHub Pages solo sirve archivos, así que no hay servidor del juego: los navegadores se conectan **directamente
+entre ellos** (WebRTC, con los servidores STUN públicos de Google y Cloudflare para atravesar los routers). Para
+encontrarse usan unos servidores públicos y gratuitos de mensajería (MQTT de EMQX y HiveMQ) por los que solo pasan
+las presentaciones, cifradas con la clave de la sala (AES-GCM). Si dos jugadores no consiguen verse directamente
+(pasa con algunas redes móviles), sus mensajes viajan cifrados por esos mismos servidores, a menos veces por
+segundo. Caben 16 jugadores por sala; cada uno simula su propio tráfico y peatones, y se comparten los jugadores,
+sus coches, disparos, el chat, los destinos del mapa y la hora del día (la de quien lleva más tiempo en la sala).
+Como en cualquier juego en red de igual a igual, quien está en tu sala puede ver tu dirección IP. El código está
+en `src/online.js` (el cliente MQTT, la sala y las conexiones) y `src/net.js` (los jugadores en la calle).
 
 ## Multijugador en tu ordenador
 
@@ -67,8 +80,8 @@ python3 tools/build_map.py          # regenera data/map.json desde OpenStreetMap
   retrata a los personajes de cerca
 - `multijugador/` — el servidor de la sala · `.github/workflows/pages.yml` — publica el juego en GitHub Pages
 
-Si defines la variable de repositorio `GUARENA_MP_URL` con la dirección del servidor, la copia de GitHub Pages
-enlaza con él desde la pantalla *Multijugador*.
+Si defines la variable de repositorio `GUARENA_MP_URL` con la dirección de un servidor propio, las copias que no
+pueden jugar online (navegadores sin WebRTC) enlazan con él desde la pantalla *Multijugador*.
 
 ## Datos y créditos
 

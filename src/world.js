@@ -227,6 +227,7 @@ void main(){
   normal = normalize((viewMatrix*vec4(pn,0.0)).xyz); }`);
     };
     for (const w of list) {
+      if (w.water === 'pool' && Math.hypot(w.ring[0], w.ring[1]) < 1500) continue; // (the town's swimming pools: pools.js)
       // the big reservoir gets the full treatment (shore, dam, jetty, real water)
       if (w.water === 'lake' && (/Pantano/i.test(w.name || '') || Math.abs(ringArea(w.ring)) > 30000)) {
         try { this.reservoir = new Reservoir(this, w); this.root.add(this.reservoir.root); continue; } catch (e) { console.warn('pantano', e); this.reservoir = null; }
@@ -394,6 +395,7 @@ void main(){
       for (let i = 0; i < n; i++) {
         const x = x0 + rnd() * (x1 - x0), z = z0 + rnd() * (z1 - z0);
         if (!pointInRing(x, z, a.ring) || map.buildingAt(x, z) || map.roadAt(x, z, 1.2)) continue; // a street crossing the square
+        if ((this.landmarks.reserved || []).some(([rx, rz, rr]) => Math.hypot(x - rx, z - rz) < rr)) continue; // (round a fountain)
         const ang = rnd() * Math.PI * 2;
         benches.add(x, 0, z, ang);
         col.addCircle(x, z, 0.55, 1, -4);

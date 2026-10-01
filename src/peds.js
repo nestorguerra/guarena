@@ -5,7 +5,7 @@
 // up), and speak castúo.
 import * as THREE from 'three';
 import { randomDesc } from './characters.js';
-import { polySample, clamp, lerp, dampAngle, wrapAngle, mulberry32, hash1 } from './util.js';
+import { polySample, polyNearest, clamp, lerp, dampAngle, wrapAngle, mulberry32, hash1 } from './util.js';
 import { endNode } from './traffic.js';
 import { Dogs } from './dogs.js';
 import { STYLE } from './style.js';
@@ -449,9 +449,12 @@ export class Peds {
         if (last && ped.goal && ped.side !== ped.goal.side && Math.abs(ped.s - ped.goal.s) < 16) { this.startCross(ped); break; }
         if (last && ped.goal && (ped.dir > 0 ? ped.s >= ped.goal.s - 0.3 : ped.s <= ped.goal.s + 0.3)) { this.arrive(ped); break; }
         if (ped.s < 0 || ped.s > e.len) this.nextEdge(ped);
-        const tgt = this.sidePoint(ped.edge, ped.s + ped.dir * 1.5, ped.side, this.tmp);
+        const ee = ped.edge, na = this.map.nodes[ee.a], nb = this.map.nodes[ee.b];
+        const ra = Math.min(ee.len * 0.45, (na && na.degree >= 3 ? na.radius || 0 : 0) + 0.4), rb = Math.max(ee.len * 0.55, ee.len - (nb && nb.degree >= 3 ? nb.radius || 0 : 0) - 0.4);
+        const tgt = this.sidePoint(ee, clamp(ped.s + ped.dir * 1.5, ra, rb), ped.side, this.tmp);
         // keep to the right of whoever comes the other way, round whoever stands in the way, overtake the slow
-        const lat = this.avoid(ped, dt);
+        let lat = this.avoid(ped, dt);
+        if (lat) { const room = e.walkOnly ? 1.2 : Math.max(0.3, (e.sw || 0) * 0.45); lat = clamp(lat, -room, room); } // (a step aside, not off the kerb)
         if (lat) { const tx = this.tmp.dx * ped.dir, tz = this.tmp.dz * ped.dir; tgt.x += -tz * lat; tgt.z += tx * lat; }
         this.steerTo(ped, tgt.x, tgt.z, sp, dt);
         // someone stops to read a message now and then; a wanderer stops to look about
@@ -482,6 +485,13 @@ export class Peds {
         // at the kerb: a look one way and the other, wait for the cars, then across
         const c = ped.cross, e = ped.edge;
         if (!c || !e) { ped.state = 'walk'; break; }
+        if (c.phase === 'walkTo') { // along the pavement to the zebra crossing
+          const t = this.sidePoint(e, c.s, ped.side, this.tmp);
+          this.steerTo(ped, t.x, t.z, ped.walkSpeed, dt);
+          if (Math.hypot(t.x - ped.x, t.z - ped.z) < 0.7) c.phase = 'look';
+          if (ped.t > 90) c.phase = 'look';
+          break;
+        }
         if (c.phase === 'look') {
           ped.speed = lerp(ped.speed, 0, 1 - Math.exp(-8 * dt));
           c.t -= dt;
@@ -546,7 +556,14 @@ export class Peds {
         if (L.state === 'enter' && L.goal) { ped.goal = L.goal; ped.state = 'enter'; ped.enterPhase = 0; break; }
         const hx = Math.sin(L.heading), hz = Math.cos(L.heading);
         const moving = L.speed > 0.3;
-        const tx = L.x + hz * 0.68 * (moving ? 1 : 0.9) - hx * (moving ? 0.1 : -0.55), tz = L.z - hx * 0.68 * (moving ? 1 : 0.9) - hz * (moving ? 0.1 : -0.55);
+        let ox = hz * 0.68, oz = -hx * 0.68; // (at their right)
+        const le = L.edge;
+        if (le && moving && L.state === 'walk') {
+          const q = polySample(le.pts, le.cum, clamp(L.s, 0, le.len), this.tmp2 || (this.tmp2 = {}));
+          if (!le.walkOnly && (le.sw || 0) < 1.3) { ox = -hx * 0.9; oz = -hz * 0.9; } // a narrow pavement: one behind the other
+          else if (!le.walkOnly) { ox = -q.dz * L.side * 0.68; oz = q.dx * L.side * 0.68; } // the side away from the road
+        }
+        const tx = L.x + ox * (moving ? 1 : 0.9) - hx * (moving ? 0.1 : -0.55), tz = L.z + oz * (moving ? 1 : 0.9) - hz * (moving ? 0.1 : -0.55);
         const d = Math.hypot(tx - ped.x, tz - ped.z);
         if (d < 0.12 && !moving) { ped.speed = lerp(ped.speed, 0, 1 - Math.exp(-8 * dt)); ped.heading = dampAngle(ped.heading, L.heading + (L.state === 'idle' ? -1.2 : 0), 4, dt); break; }
         this.steerTo(ped, tx, tz, clamp(L.speed * (1 + (d - 0.15) * 0.8), 0, L.walkSpeed * 1.5), dt);
@@ -812,6 +829,28 @@ export class Peds {
   startCross(ped) {
     ped.state = 'cross';
     ped.cross = { phase: 'look', t: 0.7 + Math.random() * 0.8, s: ped.s, to: -ped.side };
+    // a zebra crossing a little way along this street: over there, not just anywhere
+    const zs = this.zebrasOf(ped.edge);
+    let best = null;
+    for (const zs1 of zs) if (Math.abs(zs1 - ped.s) < 35 && (!best || Math.abs(zs1 - ped.s) < Math.abs(best - ped.s))) best = zs1;
+    if (best !== null && Math.abs(best - ped.s) > 1.5) { ped.cross.s = best; ped.cross.phase = 'walkTo'; }
+  }
+  // where the zebra crossings are along an edge (the crossing points of the map within 4 m of it)
+  zebrasOf(e) {
+    if (!e) return [];
+    if (!this._zebras) this._zebras = new Map();
+    let a = this._zebras.get(e.id);
+    if (a) return a;
+    a = [];
+    const map = this.map;
+    if (!this._zpois) this._zpois = map.pois.filter((p) => p.kind === 'highway:crossing');
+    for (const p of this._zpois) {
+      if (Math.abs(p.x - e.pts[0]) > e.len + 10 && Math.abs(p.x - e.pts[e.pts.length - 2]) > e.len + 10) continue;
+      const q = polyNearest(e.pts, e.cum, p.x, p.z);
+      if (q.d < e.w / 2 + 4) a.push(q.s);
+    }
+    this._zebras.set(e.id, a);
+    return a;
   }
   // nothing coming: no car within a few metres, none heading this way along the street
   clearToCross(ped) {
@@ -997,15 +1036,22 @@ export class Peds {
     ped.z += Math.cos(ped.heading) * ped.speed * dt;
   }
 
+  // round the corner onto the next street: on the pavement of the corner they are at (not across the junction), from
+  // just past the junction's mouth
+  enterEdge(ped, e, dir) {
+    ped.edge = e; ped.dir = dir;
+    const n0 = this.map.nodes[dir > 0 ? e.a : e.b], r0 = Math.min(e.len * 0.45, (n0 && n0.degree >= 3 ? n0.radius || 0 : 0) + 0.4);
+    ped.s = dir > 0 ? r0 : e.len - r0;
+    let best = 1, bd = Infinity;
+    for (const side of [1, -1]) { const q = this.sidePoint(e, ped.s, side, this.tmp); const d = Math.hypot(q.x - ped.x, q.z - ped.z); if (d < bd) { bd = d; best = side; } }
+    ped.side = best; ped.walkSide = best * dir;
+  }
   nextEdge(ped) {
     const e = ped.edge;
-    // on their way somewhere: the next street of the route, on the same side of it (their right or their left)
+    // on their way somewhere: the next street of the route (they cross over, if they must, where they are going)
     if (ped.route && ped.ri < ped.route.length - 1) {
-      const ws = ped.walkSide || ped.side * ped.dir;
       const st = ped.route[++ped.ri];
-      ped.edge = st.edge; ped.dir = st.dir;
-      ped.s = st.dir > 0 ? 0.3 : st.edge.len - 0.3;
-      ped.side = ws * st.dir; ped.walkSide = ws;
+      this.enterEdge(ped, st.edge, st.dir);
       return;
     }
     ped.route = null; ped.goal = null;
@@ -1014,10 +1060,8 @@ export class Peds {
     const opts = node.edges.map((id) => this.map.edges[id]).filter((x) => x.id !== e.id && x.walk && !x.blocked && !x.dirt && x.cls !== 'track' && x.len > 3);
     if (!opts.length) { ped.dir = -ped.dir; ped.s = clamp(ped.s, 0, e.len); return; }
     const ne = opts[Math.floor(Math.random() * opts.length)];
-    ped.edge = ne;
-    ped.dir = ne.a === nodeId ? 1 : -1;
-    ped.s = ped.dir > 0 ? 0.5 : ne.len - 0.5;
-    if (Math.random() < 0.35) ped.side = -ped.side; // cross the street at the junction
+    this.enterEdge(ped, ne, ne.a === nodeId ? 1 : -1);
+    if (Math.random() < 0.1 && !ne.walkOnly && ne.w > 4) this.startCross(ped); // over to the other side, looking out for cars
   }
 
   checkVehicles(ped) {

@@ -8,6 +8,8 @@ import { shared, makeNightGlowMaterial } from './materials.js';
 import { makeFurnitureGeometries } from './props.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { westPortal, southPortal, northPortal } from './churchdoors.js';
+import { fountain, plazaDetails, updateWater, cultura, mercadoFront, corbacho, pabellonFront, entranceLetters, meridaRoad, avenida } from './townplus.js';
+import { buildPools } from './pools.js';
 
 const toLocal = (lat, lon, origin) => {
   const R = 6378137, KX = Math.cos((origin[0] * Math.PI) / 180) * R * Math.PI / 180, KZ = R * Math.PI / 180;
@@ -243,6 +245,7 @@ class Landmarks {
   addColliders(map) {
     for (const c of this.colliders) map.collider.addRing(c.ring, c.h, -10);
     for (const c of this.circleColliders || []) map.collider.addCircle(c[0], c[1], c[2], c[3], -11);
+    for (const s of this.segColliders || []) map.collider.addSegment(s[0], s[1], s[2], s[3], s[4], -11);
   }
   signQuad(name, w, h) {
     const [cx, cy] = this.signs.cells[name];
@@ -259,6 +262,7 @@ class Landmarks {
     return this._signMat;
   }
   circle(x, z, r, h) { (this.circleColliders || (this.circleColliders = [])).push([x, z, r, h]); }
+  seg(ax, az, bx, bz, h) { (this.segColliders || (this.segColliders = [])).push([ax, az, bx, bz, h]); }
 
   build() {
     const o = this.map.raw.origin;
@@ -268,6 +272,14 @@ class Landmarks {
     this.ermita(toLocal(38.8484523, -6.0775261, o));
     this.mercado(toLocal(38.85949, -6.10063, o));
     this.plaza();
+    fountain(this); plazaDetails(this);
+    cultura(this);
+    buildPools(this);
+    corbacho(this);
+    pabellonFront(this);
+    avenida(this);
+    entranceLetters(this);
+    meridaRoad(this);
     this.gasStation();
     this.tanks();
     this.stadium();
@@ -719,6 +731,8 @@ class Landmarks {
     // sign
     const s = new THREE.Mesh(this.signQuad('ayto', 1.4, 1.4), this.signMat); s.position.set(-FW / 2 + 1.5, 3.4, 0.05); f.add(s);
     this.poi.ayto = { x: mx + nx * 4, z: mz + nz * 4, nx, nz };
+    // in under the arcade by the middle arch (venues.js: the hall, the stairs, the Salón de Plenos)
+    (this.poi.venues || (this.poi.venues = [])).push({ kind: 'ayto', name: 'Ayuntamiento de Guareña', sub: 'Casa Consistorial · Plaza de España', x: mx + nx * 1.3, z: mz + nz * 1.3, fx: mx - nx * 3, fz: mz - nz * 3, seed: 9 });
   }
 
   // ================================================================ Iglesia de San Gregorio (Plaza de San Gregorio)
@@ -786,6 +800,9 @@ class Landmarks {
     }
     const front = new THREE.Vector3(fx - 8, 0, 0).applyMatrix4(g.matrixWorld);
     this.poi.sanGregorio = { x: front.x, z: front.z };
+    // in by the west door, under the porch (venues.js: the nave, the dome, the retablo of San Gregorio)
+    { g.updateMatrixWorld(true); const out = new THREE.Vector3(fx - 1.0, 0, 0).applyMatrix4(g.matrixWorld), inn = new THREE.Vector3(fx + 3, 0, 0).applyMatrix4(g.matrixWorld), l = Math.hypot(out.x - inn.x, out.z - inn.z) || 1;
+      (this.poi.venues || (this.poi.venues = [])).push({ kind: 'sangregorio', name: 'Iglesia de San Gregorio', sub: 'Plaza de San Gregorio', x: out.x, z: out.z, fx: inn.x, fz: inn.z, seed: 13, nx: (out.x - inn.x) / l, nz: (out.z - inn.z) / l }); }
     // bust of Juan Durán Palomares facing the church + Tarteso centre totem
     this.poi.bustDuran = { x: front.x - 1, z: front.z, face: Math.atan2(ob.cx - front.x, ob.cz - front.z) };
     const totem = new THREE.Group();
@@ -862,9 +879,10 @@ class Landmarks {
   mercado([x, z]) {
     const b = this.building(x, z);
     if (!b) return;
-    this.overrides.set(b.id, { style: 'color', tint: [0.96, 0.86, 0.66], minFloors: 2, shop: 1 });
+    this.overrides.set(b.id, { style: 'color', tint: [0.96, 0.86, 0.66], minFloors: 2 });
     const c = ringCentroid(b.ring);
     this.poi.mercado = { x: c[0], z: c[1] };
+    mercadoFront(this, c[0], c[1]);
   }
 
   // ================================================================ Plaza de España: cast-iron lamps, benches, trees
@@ -893,7 +911,8 @@ class Landmarks {
     for (let gx = x0 + 6; gx < x1 - 4; gx += 12) for (let gz = z0 + 6; gz < z1 - 4; gz += 12) {
       if (pointInRing(gx, gz, r) && !this.map.buildingAt(gx, gz) && !this.map.roadAt(gx, gz, 1.5)) spots.push([gx, gz]);
     }
-    for (const [lx, lz] of spots.slice(0, 8)) {
+    const fu = this.map.pois.find((q) => q.kind === 'amenity:fountain' && pointInRing(q.x, q.z, r)); // (not by the fountain)
+    for (const [lx, lz] of spots.filter(([sx, sz]) => !fu || Math.hypot(sx - fu.x, sz - fu.z) > 8).slice(0, 8)) {
       const l = lampG.clone(); l.position.set(lx, 0, lz); this.root.add(l);
       this.circle(lx, lz, 0.35, 4);
       for (const h of heads) this.world.lampPoints.push(lx + h[0], h[1], lz + h[2]);
@@ -1085,6 +1104,7 @@ class Landmarks {
 
   update(dt, night) {
     const t = shared.uTime.value;
+    updateWater(this, dt, night);
     // floodlights on the stone monuments at night (Santa María's walls and tower glow warm)
     for (const k of ['mamp', 'sillar']) {
       const m = this.mat[k];

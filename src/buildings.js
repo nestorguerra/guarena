@@ -188,7 +188,7 @@ export function buildBuildings(map, { chunkSize = 220, skipPart = null, onBuildi
   });
   for (const p of shopPoi) {
     const b = map.buildingAt(p.x, p.z) || nearestBuilding(map, p.x, p.z, 6);
-    if (b) bInfo[b.id].shop = 1;
+    if (b && !bInfo[b.id].noShop) bInfo[b.id].shop = 1; // (a public building with its own front: no shop fronts)
   }
   // ---- part heights
   const partIndex = new PolyIndex(map.bounds.x0 - 400, map.bounds.z0 - 400, map.bounds.x1 + 400, map.bounds.z1 + 400, 16);

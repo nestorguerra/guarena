@@ -7,6 +7,6 @@ export class GameAudio {
   setVolumes() {} setListener() {} update() {} setEngine() {} setSkid() {} setOffroad() {} setWind() {} horn() {}
   sfx() {} sirenStart() {} sirenPos() {} sirenStop() {} sirenStopAll() {}
   radioOn() {} radioNext() { return 'Radio Apagada'; } radioPrev() { return 'Radio Apagada'; }
-  setAmbient() {} setChurchPos() {} bells() {} storks() {} pauseAll() {}
+  setAmbient() {} setChurchPos() {} bells() {} storks() {} pauseAll() {} loopAt() {}
 }
 export default GameAudio;

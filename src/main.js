@@ -4,6 +4,7 @@ import { Game, QUALITY } from './game.js';
 import { PLAYER_PRESETS, SKIN, HAIR, CLOTH, mhTexReady } from './characters.js';
 import { PERKS } from './perks.js';
 import { colorFor } from './net.js';
+import { newRoomCode } from './online.js';
 import { Editor } from './editor.js';
 let GameAudio;
 try { ({ GameAudio } = await import('./audio.js')); } catch (e) { console.warn('audio.js unavailable, using silent audio', e); }
@@ -182,6 +183,8 @@ function introFrame(dt) {
     ui.touch.classList.add('playing');
     mode = 'play';
     game.input.wantLock = true;
+    // arriving with a friend's invitation (a link ending in #sala-XXXXX): into their room
+    if (game.net.invited && !game.net.connected) { game.net.invited = false; game.state = 'paused'; game.input.exitLock(); openMulti(); }
   }
 }
 
@@ -400,14 +403,15 @@ async function openMulti() {
   if (!net.connected && !net.connecting) {
     await net.probe();
     renderMulti();
-    if (net.available) await net.connect(mpName(), mpDesc());
+    if (net.available) { const c = net.connect(mpName(), mpDesc()); renderMulti(); await c; }
   }
   renderMulti();
   // while the lobby is open, keep the invitation links fresh (the internet link can be renewed)
   clearInterval(openMulti.timer);
   openMulti.timer = setInterval(async () => {
     if (mode !== 'mp') { clearInterval(openMulti.timer); return; }
-    if (net.available && net.isLocalHost) { await net.probe(); if (mode === 'mp') renderMulti(); }
+    if (net.available && net.isLocalHost && !net.online) { await net.probe(); if (mode === 'mp') renderMulti(); }
+    else if (net.online) renderMulti();
   }, 4000);
 }
 function onNet(kind, data) {
@@ -417,6 +421,8 @@ function onNet(kind, data) {
 }
 function renderMulti() {
   const net = game.net, info = net.info;
+  if (net.online) { renderOnline(); return; }
+  $('mpRoom').hidden = true; $('mpGo').hidden = true;
   const yes = !!(net.available && net.connected);
   // a public server of the game (baked in at build time): outside it, offer to go there
   const online = (typeof window !== 'undefined' && window.GUARENA_MP_URL) || '';
@@ -465,6 +471,46 @@ function renderMulti() {
     : !others ? 'Esperando a que llegue tu amigo… Pásale el enlace de arriba.'
     : net.ready ? 'En cuanto los demás estén listos, salís juntos desde la Plaza de España. (Pulsa otra vez para cancelar.)'
     : 'Cuando estéis todos listos, salís juntos desde la Plaza de España.';
+}
+// online, browser to browser (the page on GitHub): a public room everybody shares, or a private one with its own link
+function renderOnline() {
+  const net = game.net, yes = net.connected;
+  const home = (typeof window !== 'undefined' && window.GUARENA_ONLINE_URL) || 'https://nestorguerra.github.io/guarena/';
+  $('mpOnline').hidden = true; $('mpNo').hidden = true; $('mpInvite').hidden = true;
+  // could not reach the meeting servers: from a page that blocks them (the published copy), send people to GitHub
+  $('mpGo').hidden = !(net.onlineError && !location.href.startsWith(home));
+  $('mpGoLink').href = home + (net.room ? '#sala-' + net.room : '');
+  $('mpYes').hidden = !yes; $('mpRoom').hidden = !yes;
+  $('mpReady').hidden = !(yes || (net.onlineError && !net.connecting));
+  const st = $('mpStatus');
+  if (!yes) {
+    st.textContent = net.connecting ? 'Conectando con la partida online…' : net.onlineError ? 'No se pudo conectar con la partida online. ¿Tienes internet?' : 'Buscando la partida online…';
+    $('mpReady').textContent = 'Reintentar';
+    return;
+  }
+  const m = net.mesh, people = net.players.size;
+  st.innerHTML = `<i class="dot"></i>En línea · ${net.room ? 'sala privada ' + esc(net.room) : 'sala pública'}${people ? ` · ${people + 1} en la sala` : ''}${m && !m.brokersUp ? ' · reconectando…' : ''}`;
+  $('mpRoomT').textContent = net.room ? `Sala privada ${net.room}` : 'Sala pública de Guareña';
+  $('mpRoomLink').textContent = net.inviteLink();
+  $('mpRoomNote').textContent = net.room ? 'Solo entra quien tenga este enlace. Pásaselo a tus amigos (por WhatsApp, por ejemplo).' : 'Aquí entra cualquiera que abra Guareña y elija Multijugador. Pásale el enlace a tus amigos, o crea una sala privada solo para vosotros.';
+  $('mpPrivate').textContent = net.room ? 'Otra sala privada' : 'Crear sala privada';
+  $('mpPublic').hidden = !net.room;
+  const d = mpDesc(), pk = PERKS[d.id];
+  $('mpCharN').textContent = d.name || 'Personaje';
+  $('mpCharP').textContent = pk ? '★ ' + pk.title : '';
+  const row = (id, name, char, state, ok) => `<li><i style="background:${colorFor(id)}"></i><b>${esc(name)}</b><span>${esc(char)}</span><em class="${ok ? 'ok' : ''}">${state}</em></li>`;
+  const rows = [row(net.id, net.name + ' (tú)', d.name || '', 'Aquí', true)];
+  let playing = 0;
+  for (const p of net.players.values()) {
+    if (p.playing) playing++;
+    const direct = m && m.peers.get(p.id) && m.peers.get(p.id).direct;
+    rows.push(row(p.id, p.name, (p.desc && p.desc.name) || '', p.playing ? '🎮 Jugando' + (direct ? '' : ' ·') : 'En el menú', p.playing));
+  }
+  $('mpPlayers').innerHTML = rows.join('');
+  $('mpReady').textContent = '¡Entrar en Guareña!';
+  $('mpReady').classList.remove('on');
+  $('mpHint').textContent = playing ? `${playing === 1 ? 'Hay 1 jugador' : `Hay ${playing} jugadores`} en Guareña ahora mismo: aparecerás a su lado. ${game.input.isTouch ? '💬' : 'T'} para hablar.`
+    : 'Ahora mismo no hay nadie más jugando. Entra igualmente: en cuanto llegue alguien, os veréis por la calle y en el mapa.';
 }
 async function copyText(t, btn) {
   let ok = false;
@@ -518,18 +564,20 @@ function openPause() {
   audio.pauseAll(true);
   $('pause').hidden = false;
   $('pCancel').hidden = !game.missions.active; // nothing to give up otherwise
+  $('pOnline').hidden = game.net.active; // (already playing with others)
   showPanel('stats');
   $('pResume').focus();
 }
 // the pause box doubles as the menu's Controls / Settings page: there «Volver» goes back to the menu
 let pauseLike = false;
-const PAUSE_ONLY = ['pMap', 'pChars', 'pCancel', 'pMenu'];
+const PAUSE_ONLY = ['pMap', 'pChars', 'pCancel', 'pOnline', 'pMenu'];
 function resume() {
   if (pauseLike) {
     pauseLike = false;
     $('pResume').textContent = 'Continuar';
     $('pTitle').textContent = 'Pausa';
     for (const id of PAUSE_ONLY) $(id).hidden = false;
+    $('pCancel').hidden = !game.missions.active; $('pOnline').hidden = game.net.active;
     $('pause').hidden = true;
     showMenu();
     return;
@@ -788,7 +836,11 @@ function wire() {
   click('bPlay', () => { if (STYLE.anime) { previewDesc = { ...PLAYER_PRESETS[0] }; startGame(); } else if (game.save.custom) { previewDesc = { ...game.save.custom }; startGame(); } else openSelect(); });
   click('bMulti', openMulti);
   click('mpBack', () => { game.net.leave(); showMenu(); });
-  click('mpReady', () => { const net = game.net; const playing = [...net.players.values()].some((p) => p.playing); net.setReady(playing ? true : !net.ready); });
+  click('mpReady', () => { const net = game.net; if (net.online && !net.connected) { if (!net.connecting) net.connect(mpName(), mpDesc()).then(renderMulti); renderMulti(); return; } const playing = [...net.players.values()].some((p) => p.playing); net.setReady(net.online || playing ? true : !net.ready); });
+  click('mpCopyRoom', () => copyText(game.net.inviteLink(), $('mpCopyRoom')));
+  click('mpPrivate', () => game.net.switchRoom(newRoomCode(), mpName(), mpDesc()).then(renderMulti));
+  click('mpPublic', () => game.net.switchRoom(null, mpName(), mpDesc()).then(renderMulti));
+  click('pOnline', () => { $('pause').hidden = true; game.state = 'paused'; game.persist(); openMulti(); });
   click('mpChangeChar', () => { selReturn = 'mp'; $('mp').hidden = true; openSelect(); $('bStart').textContent = 'Elegir'; });
   click('mpCopyLan', () => copyText($('mpLan').textContent, $('mpCopyLan')));
   click('mpMakeNet', () => { const i = game.net.info; if (i && i.internet) copyText(i.internet, $('mpMakeNet')); else game.net.makeInternetLink(); });
