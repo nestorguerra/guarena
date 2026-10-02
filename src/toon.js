@@ -216,7 +216,7 @@ void main() {
   float bold = smoothstep(0.14, 0.4, jump) * step(d0, 0.99999);
   float e = max(max(sil, crease), bold);
   e *= 1.0 - smoothstep(uFadeN, uFadeF, zn);                        // far away the lines fade out
-  e *= 1.0 - 0.85 * smoothstep(0.8, 0.86, vn(vUv * uRes / 6.5 + 17.0)); // (and a pen skips now and then)
+  // (no pen skips: on thin things — railings, spokes, cables — each gap showed the light behind as a white speck)
   if (d0 >= 0.99999 && zn > uFar * 0.98) e = 0.0;                   // (the sky itself)
   if (uDebug > 0.5) { gl_FragColor = vec4(uDebug < 1.5 ? vec3(rel * 200.0) : uDebug < 2.5 ? vec3(rel * 25.0, rel * 100.0, rel * 400.0) : vec3(fract(d0 * 4096.0)), 1.0); return; }
   vec3 c = texture2D(tColor, vUv).rgb;
