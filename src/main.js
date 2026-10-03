@@ -11,7 +11,7 @@ try { ({ GameAudio } = await import('./audio.js')); } catch (e) { console.warn('
 if (typeof GameAudio !== 'function') ({ GameAudio } = await import('./audio_stub.js'));
 import { safeStorage, clamp } from './util.js';
 import { STYLE, setStyle } from './style.js';
-import { installToonChunks } from './toon.js';
+import { installToonChunks, LOOKS } from './toon.js';
 import { INTRO, introPlan, droneAt, coverFov, IntroFlight } from './intro.js';
 
 const $ = (id) => document.getElementById(id);
@@ -616,6 +616,7 @@ function settingsHtml() {
   return `
     <div class="setting"><span>Calidad gráfica <small style="opacity:.6">(se aplica al recargar)</small></span><span class="seg" id="sQ">${Object.entries(QUALITY).map(([k, v]) => `<button data-q="${k}" class="${k === q ? 'on' : ''}">${v.name}</button>`).join('')}</span></div>
     <div class="setting"><span>Estilo visual <small style="opacity:.6">(se aplica al recargar)</small></span><span class="seg" id="sS"><button data-s="anime" class="${STYLE.anime ? 'on' : ''}">Anime</button><button data-s="real" class="${STYLE.anime ? '' : 'on'}">Realista</button></span></div>
+    ${game.toon ? `<div class="setting"><span>Estética <small style="opacity:.6">(en pruebas: estilos de Extremadura, se cambian al momento)</small></span><span class="seg" id="sLook">${LOOKS.map((l) => `<button data-look="${l.id}" class="${(game.toon.look || 'manga') === l.id ? 'on' : ''}">${l.name}</button>`).join('')}</span></div>` : ''}
     <div class="setting"><span>Resolución <small style="opacity:.6">(automática: baja un poco solo si el juego va a tirones)</small></span><span class="seg" id="sR"><button data-r="auto" class="${game.save.dynRes !== false ? 'on' : ''}">Automática</button><button data-r="fija" class="${game.save.dynRes === false ? 'on' : ''}">Fija</button></span></div>
     <div class="setting"><span>Hora del día</span><span class="seg" id="sT">${times.map(([n, h]) => `<button data-h="${h}">${n}</button>`).join('')}</span></div>
     ${STYLE.anime ? `<div class="setting"><span>Música lo-fi <small style="opacity:.6">(suena bajito mientras paseas)</small></span><span class="seg" id="sL"><button data-l="on" class="${game.save.lofi !== false ? 'on' : ''}">Sí</button><button data-l="off" class="${game.save.lofi === false ? 'on' : ''}">No</button></span></div>` : ''}
@@ -640,6 +641,11 @@ function bindSettings() {
     if (b.dataset.s !== STYLE.name) {
       if (!rl) { rl = document.createElement('button'); rl.id = 'sSReload'; rl.className = 'btn ghost'; rl.style.cssText = 'margin-left:8px;padding:6px 12px;font-size:14px'; rl.textContent = 'Recargar ahora'; rl.onclick = () => { game.persist(); location.reload(); }; seg.after(rl); }
     } else if (rl) rl.remove();
+  }));
+  document.querySelectorAll('#sLook button').forEach((b) => (b.onclick = () => {
+    game.toon.setLook(b.dataset.look); game.save.look = b.dataset.look; game.persist();
+    document.querySelectorAll('#sLook button').forEach((x) => x.classList.toggle('on', x === b));
+    if (game.state !== 'play') game.render();
   }));
   document.querySelectorAll('#sR button').forEach((b) => (b.onclick = () => { game.save.dynRes = b.dataset.r === 'auto'; game.persist(); document.querySelectorAll('#sR button').forEach((x) => x.classList.toggle('on', x === b)); }));
   document.querySelectorAll('#sL button').forEach((b) => (b.onclick = () => { game.save.lofi = b.dataset.l === 'on'; game.persist(); document.querySelectorAll('#sL button').forEach((x) => x.classList.toggle('on', x === b)); }));

@@ -171,6 +171,16 @@ export function toonifyCanvas(cv, o = {}) {
   return cv;
 }
 
+// the looks of the last pass: the manga of the game, and six from Extremadura on trial (Ajustes › Estética)
+export const LOOKS = [
+  { id: 'manga', name: 'Manga' },
+  { id: 'tierra', name: 'Tierra (Ortega Muñoz)' },
+  { id: 'zurbaran', name: 'Zurbarán' },
+  { id: 'anil', name: 'Cal y añil' },
+  { id: 'mosaico', name: 'Mosaico emeritense' },
+  { id: 'grabado', name: 'Grabado' },
+  { id: 'acuarela', name: 'Acuarela de dehesa' },
+];
 // ------------------------------------------------------------ the last pass: outlines, grade, output
 const POST_VS = 'varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }';
 const POST_FS = `
@@ -178,7 +188,7 @@ precision highp float;
 uniform sampler2D tColor; uniform sampler2D tDepth;
 uniform vec2 uRes; uniform float uNear; uniform float uFar; uniform float uLine; uniform float uExposure;
 uniform float uFadeN; uniform float uFadeF; uniform float uNight; uniform float uTime; uniform float uInkK;
-uniform vec3 uLift; uniform float uSat; uniform float uDebug; uniform float uBarrel; uniform float uVig;
+uniform vec3 uLift; uniform float uSat; uniform float uDebug; uniform float uBarrel; uniform float uVig; uniform float uStyle;
 varying vec2 vUv;
 float h21(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float vn(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
@@ -186,6 +196,129 @@ float vn(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
 float vz(float d) { float z = d * 2.0 - 1.0; return 2.0 * uNear * uFar / (uFar + uNear - z * (uFar - uNear)); }
 float iz(vec2 uv) { return 1.0 / vz(texture2D(tDepth, uv).r); }
 vec3 srgb(vec3 c) { return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c)); }
+// light to colour: exposure, a soft shoulder, a little lift in the shadows towards the teal of the sky
+vec3 gradeC(vec3 c) {
+  c *= uExposure;
+  c = (1.0 - exp(-c * 1.6)) * 1.02;                                 // (a film's roll-off: whites stay paper, never glare)
+  float lm = dot(c, vec3(0.2126, 0.7152, 0.0722));
+  c = mix(vec3(lm), c, uSat);
+  c = c + uLift * (1.0 - smoothstep(0.0, 0.6, lm)) * (1.0 - uNight * 0.7);
+  return mix(c, c * vec3(0.8, 0.88, 1.1), uNight * 0.5);             // (night leans blue)
+}
+// ---- the looks of Extremadura (uStyle 1–6, on trial): each starts from the picture on screen, in display colour
+float lumi(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }
+vec3 dispAt(vec2 uv) { return srgb(clamp(gradeC(texture2D(tColor, uv).rgb), 0.0, 1.0)); }
+vec2 lensUv(vec2 u) { vec2 s = u - 0.5; return 0.5 + s * (1.0 - uBarrel * (0.5 - dot(s, s))); }
+float canvasTex(vec2 p) { return 0.5 + 0.25 * sin(p.x * 1.7) * sin(p.y * 1.7) + 0.5 * (vn(p / 3.0) - 0.5); }
+// 1 · «Tierra» after Ortega Muñoz: the land painted flat in ochres, umbers and greys, the colour of each thing muted,
+//     soft brown lines, the canvas showing through
+vec3 sTierra(vec3 d, vec2 uv, vec2 px, float e, float eS, vec2 fp, float vig, float sky) {
+  vec3 f = d * 0.4 + (dispAt(uv + vec2(2.0, 0.0) * px) + dispAt(uv - vec2(2.0, 0.0) * px) + dispAt(uv + vec2(0.0, 2.0) * px) + dispAt(uv - vec2(0.0, 2.0) * px)) * 0.15;
+  float L = lumi(f);
+  vec3 umber = vec3(0.24, 0.18, 0.13), siena = vec3(0.55, 0.36, 0.22), ochre = vec3(0.78, 0.6, 0.36), sand = vec3(0.88, 0.8, 0.64), cal = vec3(0.96, 0.94, 0.88);
+  vec3 pal = L < 0.3 ? mix(umber, siena, L / 0.3) : L < 0.55 ? mix(siena, ochre, (L - 0.3) / 0.25) : L < 0.78 ? mix(ochre, sand, (L - 0.55) / 0.23) : mix(sand, cal, clamp((L - 0.78) / 0.2, 0.0, 1.0));
+  vec3 muted = mix(vec3(L), f, 0.72) * vec3(1.02, 1.0, 0.93);
+  vec3 r = mix(pal, muted, 0.66);
+  r = mix(r, mix(vec3(0.74, 0.79, 0.82), vec3(0.93, 0.92, 0.88), smoothstep(0.4, 0.9, L)), sky * 0.85); // (his skies: pale, grey-blue)
+  float q = L * 5.0, qs = (floor(q) + smoothstep(0.35, 0.65, fract(q))) / 5.0;
+  r *= mix(1.0, qs / max(L, 0.03), 0.35);                             // (a few flat tones, soft steps)
+  r = mix(r, vec3(0.2, 0.14, 0.1), clamp(eS * 0.85 + (e - eS) * 0.25, 0.0, 1.0));
+  r *= 0.95 + 0.07 * canvasTex(fp);
+  return r * (1.0 - 0.18 * vig);
+}
+// 2 · «Zurbarán»: tenebrism — the shadows fall to a warm black, the light (from the upper left) keeps only what it
+//     touches, whites like the monks' habits, an old varnish over the canvas
+vec3 sZurbaran(vec3 d, float e, vec2 fp, float vig, vec2 st, float sky) {
+  float L = lumi(d) * (1.0 - 0.55 * sky);
+  float L2 = pow(smoothstep(0.08, 0.92, L), 1.45);
+  vec3 warm = mix(vec3(0.045, 0.032, 0.024), vec3(0.97, 0.92, 0.8), L2);
+  vec3 hue = mix(vec3(L), d, 0.55) * (L2 / max(L, 0.03));
+  vec3 r = mix(warm, hue * vec3(1.04, 0.98, 0.86), 0.45);
+  r *= 1.0 - 0.38 * smoothstep(-0.35, 0.65, st.x - st.y * 0.6);
+  r *= 1.0 - 0.6 * vig;
+  r = mix(r, vec3(0.07, 0.045, 0.03), clamp(e * 0.6, 0.0, 1.0));
+  r *= 0.96 + 0.06 * canvasTex(fp * 0.8);
+  return r * vec3(1.0, 0.97, 0.88);
+}
+// 3 · «Cal y añil»: a screen print in the colours of the whitewashed villages — lime white, indigo, sky, red ochre
+//     (almagra), yellow ochre (albero), olive and ink; halftone dots between two inks, the fill a touch off the line
+vec3 sAnil(vec3 dOff, float e, vec2 fp) {
+  // the inks: cal, piedra, añil, tinta for what has no colour (by its light); cielo, almagra, albero, olivo for the rest
+  vec3 CAL = vec3(0.97, 0.95, 0.89), PIEDRA = vec3(0.7, 0.67, 0.6), ANIL = vec3(0.16, 0.25, 0.53), TINTA = vec3(0.1, 0.11, 0.17);
+  vec3 P[4] = vec3[4](vec3(0.6, 0.76, 0.86), vec3(0.71, 0.28, 0.18), vec3(0.9, 0.72, 0.35), vec3(0.44, 0.5, 0.28));
+  float L = lumi(dOff), mx = max(max(dOff.r, dOff.g), dOff.b), mn = min(min(dOff.r, dOff.g), dOff.b), chroma = mx - mn;
+  vec3 c1, c2; float t;
+  if (chroma < 0.1) {
+    // whitewash, stone, asphalt, shade: lime white over grey stone, the shadows in indigo
+    if (L > 0.8) { c1 = CAL; c2 = PIEDRA; t = (0.9 - L) / 0.1; }
+    else if (L > 0.55) { c1 = PIEDRA; c2 = CAL; t = (L - 0.55) / 0.25; }
+    else if (L > 0.3) { c1 = PIEDRA; c2 = ANIL; t = (0.55 - L) / 0.25; }
+    else { c1 = ANIL; c2 = TINTA; t = (0.3 - L) / 0.3; }
+    if (t > 0.5) { vec3 k = c1; c1 = c2; c2 = k; t = 1.0 - t; }
+  } else {
+    float b1 = 1e9, b2 = 1e9; int i1 = 0, i2 = 0;
+    vec3 hc = (dOff - vec3(L)) / max(chroma, 1e-3);   // the hue, apart from the light
+    for (int i = 0; i < 4; i++) { float pl = lumi(P[i]); vec3 ph = (P[i] - vec3(pl)) / max(max(max(P[i].r, P[i].g), P[i].b) - min(min(P[i].r, P[i].g), P[i].b), 1e-3); float dd = dot(hc - ph, hc - ph) + 2.0 * (L - pl) * (L - pl); if (dd < b1) { b2 = b1; i2 = i1; b1 = dd; i1 = i; } else if (dd < b2) { b2 = dd; i2 = i; } }
+    c1 = P[i1]; c2 = P[i2]; t = b1 / max(b1 + b2, 1e-5);
+    if (L < 0.28) { c2 = TINTA; t = (0.28 - L) / 0.28 * 0.5; }   // (the darks of a colour: its ink)
+  }
+  vec2 hp = mat2(0.7071, -0.7071, 0.7071, 0.7071) * fp / max(6.0, uRes.y / 105.0);
+  float tt = clamp(t, 0.0, 0.5);
+  vec3 r = length(fract(hp) - 0.5) < sqrt(tt) * 0.72 ? c2 : c1;
+  r = mix(r, vec3(0.12, 0.16, 0.36), clamp(e * 0.95, 0.0, 1.0));
+  return r * (0.97 + 0.04 * vn(fp / 2.0));
+}
+// 4 · «Mosaico emeritense»: the town laid in tesserae like the floors of Augusta Emerita — limestone, basalt, ochre,
+//     brick red, slate, green, a pale sky; courses offset, grout between, the outlines in black stones
+float edgeAt(vec2 uv, vec2 o) {
+  float i0 = iz(uv);
+  float lap = abs(iz(uv - vec2(o.x, 0.0)) + iz(uv + vec2(o.x, 0.0)) - 2.0 * i0) + abs(iz(uv - vec2(0.0, o.y)) + iz(uv + vec2(0.0, o.y)) - 2.0 * i0);
+  return smoothstep(0.05, 0.14, lap / max(i0, 1e-6)) * step(texture2D(tDepth, uv).r, 0.99999);
+}
+vec3 sMosaico(vec2 fp, vec2 px) {
+  float T = max(6.0, uRes.y / 105.0);
+  vec2 g = fp / T;
+  float off = mod(floor(g.y), 2.0) * 0.5;
+  vec2 g2 = vec2(g.x + off, g.y), id = floor(g2), f = fract(g2);
+  vec2 jit = (vec2(h21(id), h21(id + 7.13)) - 0.5) * 0.16;
+  vec2 cuv = lensUv((id + 0.5 + jit - vec2(off, 0.0)) * T / uRes);
+  vec3 cc = dispAt(cuv);
+  vec3 P[8] = vec3[8](vec3(0.93, 0.9, 0.83), vec3(0.14, 0.13, 0.12), vec3(0.8, 0.62, 0.33), vec3(0.64, 0.28, 0.19), vec3(0.4, 0.45, 0.5), vec3(0.4, 0.48, 0.32), vec3(0.64, 0.74, 0.77), vec3(0.85, 0.78, 0.62));
+  float bd = 1e9; vec3 r = P[0];
+  for (int i = 0; i < 8; i++) { vec3 df = cc - P[i]; float dd = dot(df, df); if (dd < bd) { bd = dd; r = P[i]; } }
+  if (edgeAt(cuv, px * T * 0.6) > 0.5) r = P[1];
+  r *= 0.94 + 0.12 * h21(id + 3.7);
+  float gd = min(min(f.x, 1.0 - f.x), min(f.y, 1.0 - f.y));
+  return mix(vec3(0.6, 0.56, 0.5), r, smoothstep(0.045, 0.1, gd));
+}
+// 5 · «Grabado»: an engraving of a nineteenth-century travel book — sepia ink hatched on cream paper, a breath of colour
+float hatch(float t, float w) { return w <= 0.0 ? 0.0 : (1.0 - smoothstep(w - 0.12, w + 0.12, t)) * smoothstep(0.0, 0.08, w); }
+vec3 sGrabado(vec3 d, float e, vec2 fp) {
+  float L = pow(lumi(d), 0.8), sp = max(4.0, uRes.y / 190.0);
+  float t1 = abs(fract((fp.x + fp.y) / (sp * 1.4142)) - 0.5) * 2.0, t2 = abs(fract((fp.x - fp.y) / (sp * 1.4142)) - 0.5) * 2.0, t3 = abs(fract(fp.y / sp) - 0.5) * 2.0;
+  float ink = max(max(hatch(t1, clamp((0.82 - L) * 1.6, 0.0, 0.75)), hatch(t2, clamp((0.55 - L) * 1.8, 0.0, 0.7))), hatch(t3, clamp((0.3 - L) * 2.2, 0.0, 0.7)));
+  ink = max(ink, clamp(e * 1.1, 0.0, 1.0));
+  vec3 paper = vec3(0.95, 0.91, 0.82) * (0.96 + 0.05 * vn(fp / 1.5)) * (0.98 + 0.03 * vn(fp / 40.0));
+  vec3 r = mix(paper, vec3(0.17, 0.12, 0.09), ink);
+  return mix(r, r * (0.75 + 0.5 * d), 0.12);
+}
+// 6 · «Acuarela de la dehesa»: washes over white cold-pressed paper, the pigment pooling where colours meet, granulating
+//     in the flats, the paper left bare for the brightest light, a pencil line under it all
+vec3 sAcuarela(vec3 d, vec2 uv, vec2 px, float e, vec2 fp) {
+  vec2 w = (vec2(vn(fp / 50.0), vn(fp / 50.0 + 9.0)) - 0.5) * 8.0 * px;   // (the wash wanders off the drawing a little)
+  vec3 c0 = dispAt(uv + w), b = c0 * 2.0;
+  for (int k = 0; k < 8; k++) { float a = float(k) * 0.7854 + 0.3; b += dispAt(uv + w + vec2(cos(a), sin(a)) * 7.0 * px); }
+  b /= 10.0;
+  b = 1.0 - (1.0 - b) * 0.78;                                    // watercolour values: lighter, softer
+  b = mix(vec3(lumi(b)), b, 0.9);
+  float edge = clamp(length(c0 - b) * 2.6, 0.0, 1.0);
+  vec3 pig = b * (1.0 - 0.32 * edge);                            // the wet edge where one wash meets another
+  float gr = vn(fp / 2.0) * 0.5 + vn(fp / 5.0) * 0.3 + vn(fp / 13.0) * 0.2;
+  pig *= 1.0 - 0.14 * gr * (1.0 - abs(lumi(b) - 0.55) * 2.0);     // (granulation in the half-tones)
+  pig = mix(pig, vec3(0.985, 0.978, 0.955), smoothstep(0.78, 0.95, lumi(b)) * 0.8); // the bare paper for the lights
+  pig *= 0.95 + 0.06 * vn(fp / 1.3);
+  return mix(pig, vec3(0.38, 0.37, 0.42), clamp(e * 0.33, 0.0, 1.0));   // a light pencil under it all
+}
 void main() {
   vec2 px = 1.0 / uRes;
   // a pen, not a ruler: the lines wander a pixel here and there and swell and thin along their length. (The depth is
@@ -214,10 +347,11 @@ void main() {
   float ja = iz(uv + vec2(o2.x, 0.0)), jb = iz(uv - vec2(o2.x, 0.0)), jc = iz(uv + vec2(0.0, o2.y)), jd = iz(uv - vec2(0.0, o2.y));
   float jump = max(max(i0 - ja, i0 - jb), max(i0 - jc, i0 - jd)) / max(i0, 1e-6);
   float bold = smoothstep(0.14, 0.4, jump) * step(d0, 0.99999);
-  float e = max(max(sil, crease), bold);
-  e *= 1.0 - smoothstep(uFadeN, uFadeF, zn);                        // far away the lines fade out
+  float e = max(max(sil, crease), bold), eS = max(sil, bold);
+  float fade = 1.0 - smoothstep(uFadeN, uFadeF, zn);
+  e *= fade; eS *= fade;                                            // far away the lines fade out
   // (no pen skips: on thin things — railings, spokes, cables — each gap showed the light behind as a white speck)
-  if (d0 >= 0.99999 && zn > uFar * 0.98) e = 0.0;                   // (the sky itself)
+  if (d0 >= 0.99999 && zn > uFar * 0.98) { e = 0.0; eS = 0.0; }    // (the sky itself)
   if (uDebug > 0.5) { gl_FragColor = vec4(uDebug < 1.5 ? vec3(rel * 200.0) : uDebug < 2.5 ? vec3(rel * 25.0, rel * 100.0, rel * 400.0) : vec3(fract(d0 * 4096.0)), 1.0); return; }
   vec3 c = texture2D(tColor, vUv).rgb;
   // at night whatever shines (lamps, windows, headlights) spreads a soft halo round it
@@ -230,19 +364,27 @@ void main() {
     }
     c += g * (uNight * 0.09);
   }
-  // light to colour: exposure, a soft shoulder, a little lift in the shadows towards the teal of the sky
-  c *= uExposure;
-  c = (1.0 - exp(-c * 1.6)) * 1.02;                                 // (a film's roll-off: whites stay paper, never glare)
-  float lm = dot(c, vec3(0.2126, 0.7152, 0.0722));
-  c = mix(vec3(lm), c, uSat);
-  c = c + uLift * (1.0 - smoothstep(0.0, 0.6, lm)) * (1.0 - uNight * 0.7);
-  c = mix(c, c * vec3(0.8, 0.88, 1.1), uNight * 0.5);              // (night leans blue)
-  // the ink: a dark, slightly blue version of what it outlines
-  vec3 ink = mix(c * vec3(0.16, 0.18, 0.22), vec3(0.018, 0.02, 0.03), 0.84);   // black, a breath of the colour
-  ink = mix(ink, c * 0.5, uNight * 0.3);
-  c = mix(c, ink, clamp(e * uInkK, 0.0, 1.0));
-  c *= 1.0 - uVig * smoothstep(0.35, 0.95, length(st * vec2(1.0, uRes.y / uRes.x) * 1.5)); // (and the corners a little darker)
-  gl_FragColor = vec4(srgb(clamp(c, 0.0, 1.0)), 1.0);
+  c = gradeC(c);
+  float vig = smoothstep(0.35, 0.95, length(st * vec2(1.0, uRes.y / uRes.x) * 1.5));
+  if (uStyle < 0.5) {
+    // the manga ink: a dark, slightly blue version of what it outlines
+    vec3 ink = mix(c * vec3(0.16, 0.18, 0.22), vec3(0.018, 0.02, 0.03), 0.84);   // black, a breath of the colour
+    ink = mix(ink, c * 0.5, uNight * 0.3);
+    c = mix(c, ink, clamp(e * uInkK, 0.0, 1.0));
+    c *= 1.0 - uVig * vig;                                          // (and the corners a little darker)
+    gl_FragColor = vec4(srgb(clamp(c, 0.0, 1.0)), 1.0);
+    return;
+  }
+  vec3 d = srgb(clamp(c, 0.0, 1.0)), r;
+  vec2 fp = gl_FragCoord.xy;
+  float sky = d0 >= 0.99999 ? 1.0 : 0.0;
+  if (uStyle < 1.5) r = sTierra(d, vUv, px, e, eS, fp, vig, sky);
+  else if (uStyle < 2.5) r = sZurbaran(d, e, fp, vig, st, sky);
+  else if (uStyle < 3.5) r = sAnil(dispAt(vUv + vec2(1.5, -1.0) * px), e, fp);
+  else if (uStyle < 4.5) r = sMosaico(fp, px);
+  else if (uStyle < 5.5) r = sGrabado(d, e, fp);
+  else r = sAcuarela(d, vUv, px, e, fp);
+  gl_FragColor = vec4(clamp(r, 0.0, 1.0), 1.0);
 }`;
 export class ToonPipeline {
   constructor(renderer, { msaa = 4, line = 1 } = {}) {
@@ -257,7 +399,7 @@ export class ToonPipeline {
       tColor: { value: this.rt.texture }, tDepth: { value: dt }, uRes: { value: new THREE.Vector2(1, 1) },
       uNear: { value: 0.25 }, uFar: { value: 4000 }, uLine: { value: 1 }, uExposure: { value: 1 },
       uFadeN: { value: 420 }, uFadeF: { value: 1400 }, uNight: { value: 0 }, uTime: { value: 0 }, uInkK: { value: 1.0 },
-      uLift: { value: new THREE.Color(0.035, 0.05, 0.06) }, uSat: { value: 0.96 }, uDebug: { value: 0 }, uBarrel: { value: LENS.k }, uVig: { value: 0.16 },
+      uLift: { value: new THREE.Color(0.035, 0.05, 0.06) }, uSat: { value: 0.96 }, uDebug: { value: 0 }, uBarrel: { value: LENS.k }, uVig: { value: 0.16 }, uStyle: { value: 0 },
     };
     this.mat = new THREE.ShaderMaterial({ uniforms: this.u, vertexShader: POST_VS, fragmentShader: POST_FS, depthTest: false, depthWrite: false, toneMapped: false });
     this.quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.mat);
@@ -289,5 +431,7 @@ export class ToonPipeline {
     r.render(this.qScene, this.qCam);
     r.autoClear = at;
   }
+  // the look on trial (see LOOKS): 0 manga … 6 acuarela
+  setLook(id) { const i = LOOKS.findIndex((l) => l.id === id); this.u.uStyle.value = Math.max(0, i); this.look = LOOKS[Math.max(0, i)].id; }
   dispose() { this.rt.dispose(); this.mat.dispose(); }
 }
