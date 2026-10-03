@@ -664,7 +664,6 @@ function controlsHtml() {
     <dt>Subir / Bajar</dt><dd>Entrar o salir del vehículo (roba el que quieras)</dd>
     <dt>Radio · Claxon</dt><dd>Siguiente emisora (${realFm}) · pitar (doble toque: sirena en patrullas). En el 📱, la app <b>Radio</b> mueve el dial a mano</dd>
     <dt>Mapa · II</dt><dd>Mapa con GPS · pausa</dd>
-    <dt>Linterna</dt><dd>En los modos de terror: encender o apagar la linterna del móvil</dd>
   </dl>`;
   return `<dl class="keys">
     <dt><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></dt><dd>Andar / conducir</dd>
@@ -680,7 +679,7 @@ function controlsHtml() {
     <dt>Ratón</dt><dd>Cámara</dd>
     <dt><kbd>C</kbd> / <kbd>Ctrl</kbd></dt><dd>A pie: agacharse (sigilo; detrás de coches y contenedores no te ven) · en el coche: mirar atrás</dd>
     <dt><kbd>V</kbd></dt><dd>A pie: primera/tercera persona (en el coche: cerca/lejos)</dd>
-    <dt><kbd>L</kbd></dt><dd>Linterna (modos de terror) · luces del coche</dd>
+    <dt><kbd>L</kbd></dt><dd>Luces del coche</dd>
     <dt><kbd>G</kbd></dt><dd>Sirena (en patrullas)</dd>
     <dt><kbd>M</kbd></dt><dd>Mapa y GPS</dd>
     <dt><kbd>Tab</kbd></dt><dd>Móvil: mapa, mensajes, llamar a tus amigos (mantén <kbd>B</kbd> para hablar), enviar tu ubicación, trabajos, inventario, cámara y menú · <kbd>Esc</kbd> vuelve atrás</dd>
@@ -704,15 +703,13 @@ function controlsHtml() {
 // ------------------------------------------------------------ wiring
 const MODE_DESC = {
   normal: 'El Guareña de siempre: misiones, coches, armas, bares, taxi y patrulla por sus calles reales.',
-  terror: 'El apagón de Guareña. Despiertas en una casa vieja a oscuras y no puedes salir. Linterna, fusibles, notas… y la mujer de blanco. En primera persona (V cambia a tercera).',
-  extremo: 'El apagón, sin piedad: ella te acecha y avanza cuando no la alumbras. Menos pilas, más sustos. Escóndete en los armarios o no verás el amanecer.',
   zombis: 'Anochece y los muertos salen a las calles de Guareña. Sobrevive a oleadas cada vez más grandes con lo que encuentres. Ganas 10 € por cada zombi.',
 };
 let selMode = 'normal';
 function setModeSel(m) {
   selMode = MODE_DESC[m] ? m : 'normal';
   document.querySelectorAll('#modeSeg button').forEach((b) => b.classList.toggle('on', b.dataset.mode === selMode));
-  $('modeDesc').textContent = MODE_DESC[selMode].replace('(V cambia', `(${game && game.input ? game.input.keyText('V', 13, 'el botón de cámara') : 'V'} cambia`);
+  $('modeDesc').textContent = MODE_DESC[selMode];
   playLabel();
   if (game) { game.pendingMode = selMode; game.save.modePref = selMode; game.persist(); }
 }
@@ -720,7 +717,7 @@ function setModeSel(m) {
 function playLabel() {
   const who = game && game.save && game.save.custom && game.save.custom.name;
   const base = who ? 'Continuar' : 'Jugar';
-  $('bPlay').textContent = selMode === 'normal' ? (who ? `Continuar · ${who}` : 'Jugar') : `${base} · ${selMode === 'zombis' ? 'Zombis' : selMode === 'terror' ? 'Terror' : 'Terror extremo'}`;
+  $('bPlay').textContent = selMode === 'normal' ? (who ? `Continuar · ${who}` : 'Jugar') : `${base} · Zombis`;
 }
 
 // ------------------------------------------------------------ menus with the gamepad (and Esc to go back)

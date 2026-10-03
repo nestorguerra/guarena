@@ -181,7 +181,6 @@ export class Input {
   get phone() { return this.hit('Tab') || (!this.phoneOpen && this.gpPressed(12)) || this.touch.pressed.has('phone'); }
   get lights() { return this.hit('KeyL'); }
   get inventory() { return this.hit('KeyI') || this.touch.pressed.has('inv'); }
-  get flashlight() { return this.hit('KeyL') || (!this.phoneOpen && this.gpPressed(14)) || this.touch.pressed.has('light'); }
   get siren() { return this.hit('KeyG') || this.touch.pressed.has('siren') || this._sirenPad; }
   get skip() { return this.hit('Space') || this.hit('Enter') || this.gpPressed(0) || this.touch.pressed.has('jump') || this.touch.pressed.has('enter'); }
   look() {

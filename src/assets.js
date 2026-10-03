@@ -140,9 +140,7 @@ export function loadTexture(name, suffix = '_d', { srgb = true, repeat = 1 } = {
 
 // sound samples: name -> ArrayBuffer (decoded later by the audio engine)
 export const SAMPLES = {
-  horror_amb: 'ambient_horror.mp4', breath: 'ghost_breath.mp4', scream: 'scream.mp4', sting1: 'sting1.mp4', sting2: 'sting2.mp4',
-  ghost: 'ghost_high.mp4', static: 'radio_static.mp4', chant: 'chant.mp4', breaker_on: 'breaker_on.mp4', breaker_off: 'breaker_off.mp4',
-  moan1: 'moan1.mp4', moan2: 'moan2.mp4',
+  breath: 'ghost_breath.mp4',
   z1: 'zombie1.mp4', z2: 'zombie2.mp4', z3: 'zombie3.mp4', z4: 'zombie4.mp4', z5: 'zombie5.mp4', z6: 'zombie6.mp4',
 };
 export async function fetchSample(name) {

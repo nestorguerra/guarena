@@ -5,8 +5,8 @@ OpenStreetMap, los edificios del Catastro con su número de plantas, la Iglesia 
 España, el Pantano de San Roque, los naranjos y plátanos de sus calles, los olivares, viñas y encinas del campo, los
 geranios de las ventanas y las amapolas de los solares… Misiones, coches, motos y bicis, tráfico, peatones, policía, bares, trabajos,
 casas por dentro (sus ventanas dan a la calle de verdad), las tiendas del pueblo para entrar y comprar, un
-inventario, tu casa para decorarla y con caja fuerte, la armería, la pesca en el pantano, radio, modos de terror
-y de zombis, y multijugador con tus amigos.
+inventario, tu casa para decorarla y con caja fuerte, la armería, la pesca en el pantano, radio, un modo
+zombis y multijugador con tus amigos.
 
 Desde la versión 32 se ve **como un anime**, inspirado en la estética del juego web
 [Messenger](https://messenger.abeto.co/) (Abeto): luz de dos tonos con sombras frías, contornos de tinta
@@ -88,7 +88,7 @@ pueden jugar online (navegadores sin WebRTC) enlazan con él desde la pantalla *
 - Callejero © colaboradores de [OpenStreetMap](https://www.openstreetmap.org/copyright), bajo la licencia
   ODbL: `data/map.json` y `data/guarena.osm` contienen esos datos y se comparten con la misma licencia.
 - Edificios: Dirección General del Catastro (servicio INSPIRE), reutilizables citando la fuente.
-- Texturas fotográficas: [Poly Haven](https://polyhaven.com) (CC0). Sonidos de terror y zombis:
+- Texturas fotográficas: [Poly Haven](https://polyhaven.com) (CC0). Sonidos de zombis:
   [OpenGameArt](https://opengameart.org) (CC0).
 - Caras, ojos, cejas, pestañas y peinados: [MakeHuman](http://www.makehumancommunity.org) (CC0: la malla base,
   sus deformaciones y los recursos del sistema). `tools/mh_import.py` los convierte en `assets/mh/`.

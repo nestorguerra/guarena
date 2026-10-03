@@ -245,13 +245,6 @@ export class Activities {
     if (this.taxi) this.updateTaxi(dt);
     if (this.patrol) this.updatePatrol(dt);
     this.updatePassenger(dt);
-    // reading a note (horror): E / tap closes it
-    if (g.horror && g.horror.readingNote) {
-      g.hud.prompt('');
-      if (g.input.interact || this.tapped) g.horror.closeNote();
-      this.tapped = false;
-      return;
-    }
     // one contextual action at a time
     let opt = null;
     if (g.state === 'play' && !g.cam.cinematic) {

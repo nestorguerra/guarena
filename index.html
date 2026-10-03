@@ -246,29 +246,10 @@ body.scoped .radarWrap, body.scoped #weapon { opacity: 0.3; }
 #modeSeg { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 #modeSeg button { background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.18); border-radius: 999px; padding: 7px 14px; font-family: var(--cond); font-weight: 800; font-size: 16px; letter-spacing: 0.05em; text-transform: uppercase; color: rgba(251,250,246,0.85); }
 #modeSeg button.on { background: var(--trigo); border-color: var(--trigo); color: #1a1408; }
-#modeSeg button[data-mode="terror"].on, #modeSeg button[data-mode="extremo"].on { background: #8a1c1c; border-color: #c43a3a; color: #fbe9e6; }
 #modeSeg button[data-mode="zombis"].on { background: #4f7a3a; border-color: #7fb05a; color: #f0f8e8; }
 #modeDesc { margin: 10px 0 0; font-size: 14px; line-height: 1.5; color: rgba(251,250,246,0.78); max-width: 560px; }
-#grain { position: fixed; inset: -50px; z-index: 11; pointer-events: none; opacity: 0; mix-blend-mode: overlay; }
-body.horror #grain { opacity: 0.35; }
-#hFlash { position: fixed; inset: 0; z-index: 14; pointer-events: none; background: radial-gradient(circle, rgba(255,255,255,0.0) 20%, rgba(140,0,0,0.85) 100%); opacity: 0; }
-#hFlash.on { animation: hflash 0.9s ease-out; }
-@keyframes hflash { 0% { opacity: 1; } 100% { opacity: 0; } }
-#hhud { position: fixed; z-index: 12; left: max(16px, env(safe-area-inset-left)); top: max(16px, env(safe-area-inset-top)); background: rgba(8,8,10,0.55); border-radius: 10px; padding: 10px 12px; font-family: var(--cond); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; font-size: 13px; color: rgba(240,236,228,0.85); pointer-events: none; min-width: 210px; }
-.hrow { display: grid; grid-template-columns: 74px 1fr; align-items: center; gap: 8px; margin-bottom: 6px; }
-.hbar { height: 8px; border-radius: 4px; background: rgba(255,255,255,0.12); overflow: hidden; }
-.hbar b { display: block; height: 100%; width: 100%; background: #e8e0b8; transition: width 0.2s; }
-.hbar b.low { background: #d8483a; }
-.hbar.fear b { background: #9ab8d8; }
-#hInv { font-size: 13px; letter-spacing: 0.04em; margin-top: 2px; color: rgba(240,236,228,0.95); }
 #zhud { position: fixed; z-index: 12; left: 50%; top: max(14px, env(safe-area-inset-top)); transform: translateX(-50%); background: rgba(20,28,16,0.7); border: 1px solid rgba(140,190,100,0.5); border-radius: 999px; padding: 8px 18px; font-family: var(--cond); font-weight: 800; font-size: 18px; letter-spacing: 0.06em; text-transform: uppercase; color: #d8f0c0; pointer-events: none; white-space: nowrap; }
-body.horror .tr, body.horror #streetBox, body.horror .radarWrap, body.horror #weapon { display: none; }
 body.zmode #stars { display: none; }
-#note { position: fixed; inset: 0; z-index: 25; display: grid; place-items: center; background: rgba(0,0,0,0.55); padding: 16px; }
-#note .paper { width: min(460px, 100%); background: #efe6cf; color: #2a2218; border-radius: 4px; padding: 26px 28px 18px; box-shadow: 0 20px 60px rgba(0,0,0,0.6); transform: rotate(-1.2deg); font-family: 'Courier New', monospace; }
-#note h3 { margin: 0 0 14px; font-family: var(--cond); font-size: 22px; letter-spacing: 0.04em; text-transform: uppercase; color: #5a1a14; }
-#note p { margin: 0; white-space: pre-line; font-size: 15px; line-height: 1.55; }
-#note small { display: block; margin-top: 16px; opacity: 0.6; font-family: var(--body); }
 #hEnd { z-index: 26; background: rgba(0,0,0,0.82); }
 #hEnd .endBox { text-align: center; max-width: 560px; }
 #hEnd h2 { font-family: var(--display); font-size: clamp(44px, 8vw, 84px); letter-spacing: 0.04em; margin: 0; color: #d8483a; }
@@ -276,10 +257,6 @@ body.zmode #stars { display: none; }
 #hEnd p { font-size: 17px; color: rgba(251,250,246,0.85); line-height: 1.5; }
 #hEnd .menuList { align-items: center; }
 body.hiding::after { content: ''; position: fixed; inset: 0; z-index: 11; pointer-events: none; background: linear-gradient(90deg, #000 0%, #000 44%, rgba(0,0,0,0.25) 48%, rgba(0,0,0,0.25) 52%, #000 56%, #000 100%); }
-#game.retro { image-rendering: pixelated; }
-#touch .horroronly { display: none; }
-body.horror #touch .horroronly { display: block; }
-body.horror #touch [data-btn="weapon"], body.horror #touch [data-btn="map"], body.horror #touch [data-btn="enter"], body.horror #touch [data-btn="attack"] { display: none; }
 #prompt.tap { pointer-events: auto; cursor: pointer; border: 2px solid var(--trigo); background: rgba(20,18,12,0.85); padding: 11px 20px; }
 #prompt.tap::before { content: '👆 '; }
 #prompt kbd { margin-right: 8px; }
@@ -695,15 +672,7 @@ body.contemplar #hud .tr, body.contemplar #hud .radarWrap, body.contemplar #hud 
 
 <div id="prompt"></div>
 <div id="fade"></div>
-<div id="grain"></div>
-<div id="hFlash"></div>
-<div id="hhud" hidden>
-  <div class="hrow"><span>Linterna</span><div class="hbar"><b id="hBat"></b></div></div>
-  <div class="hrow"><span>Nervios</span><div class="hbar fear"><b id="hFear"></b></div></div>
-  <div id="hInv"></div>
-</div>
 <div id="zhud" hidden></div>
-<div id="note" hidden><div class="paper"><h3 id="noteTitle"></h3><p id="noteBody"></p><small>Toca o pulsa <kbd>E</kbd> para cerrar</small></div></div>
 <div id="hEnd" class="screen overlay" hidden>
   <div class="endBox">
     <h2 id="hEndTitle"></h2>
@@ -716,7 +685,7 @@ body.contemplar #hud .tr, body.contemplar #hud .radarWrap, body.contemplar #hud 
   <div id="tStick"><div id="tKnob"></div></div>
   <div class="ttop"><button data-btn="map" aria-label="Mapa">Mapa</button><button data-btn="pause" aria-label="Pausa">II</button><button id="tChat" aria-label="Chat" hidden>💬</button><button data-btn="phone" aria-label="Móvil">📱</button><button class="car" data-btn="radio" aria-label="Radio">Radio</button><button class="car" data-btn="horn" aria-label="Claxon">Claxon</button></div>
   <div class="tbtns">
-    <button class="foot horroronly" data-btn="light">Linterna</button><button class="foot" data-btn="weapon">Arma</button><button class="foot" data-btn="sprint">Correr</button><button class="foot" data-btn="jump">Saltar</button><button class="foot" data-btn="crouch">Agachar</button>
+    <button class="foot" data-btn="weapon">Arma</button><button class="foot" data-btn="sprint">Correr</button><button class="foot" data-btn="jump">Saltar</button><button class="foot" data-btn="crouch">Agachar</button>
     <button class="foot" data-btn="attack" id="tAttack" style="grid-column: 2">Golpe</button>
     <button class="car" data-btn="brake">Freno</button><button class="car" data-btn="hand">Derrape</button><button class="car" data-btn="gas">Gas</button>
     <button data-btn="enter" style="grid-column: 3">Subir</button>
@@ -750,7 +719,7 @@ body.contemplar #hud .tr, body.contemplar #hud .radarWrap, body.contemplar #hud 
   <div class="modeSel">
     <span class="ml">Modo de juego</span>
     <div class="seg" id="modeSeg">
-      <button data-mode="normal" class="on">Normal</button><button data-mode="terror">Terror</button><button data-mode="extremo">Terror extremo</button><button data-mode="zombis">Zombis</button>
+      <button data-mode="normal" class="on">Normal</button><button data-mode="zombis">Zombis</button>
     </div>
     <p id="modeDesc">El Guareña de siempre: misiones, coches, armas, bares, taxi y patrulla por sus calles reales.</p>
   </div>
@@ -761,7 +730,7 @@ body.contemplar #hud .tr, body.contemplar #hud .radarWrap, body.contemplar #hud 
     <button id="bControls">Controles</button>
     <button id="bSettings">Ajustes</button>
   </div>
-  <p class="credits">Juego de mundo abierto en el Guareña real. Callejero © colaboradores de <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> (ODbL) · Edificios: Dirección General del Catastro (INSPIRE). Texturas fotográficas: <a href="https://polyhaven.com" target="_blank" rel="noopener">Poly Haven</a> (CC0: Rob Tuytel, Charlotte Baglioni, Amal Kumar, Jenelle van Heerden, Dimitrios Savva y otros). Sonidos de zombis y terror: <a href="https://opengameart.org" target="_blank" rel="noopener">OpenGameArt</a> (CC0: qubodup, Vinrax, TinyWorlds, OwlishMedia, Fupi, techiew, CleytonKauffman y otros). Personajes, vehículos, historias y misiones son ficticios.</p>
+  <p class="credits">Juego de mundo abierto en el Guareña real. Callejero © colaboradores de <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> (ODbL) · Edificios: Dirección General del Catastro (INSPIRE). Texturas fotográficas: <a href="https://polyhaven.com" target="_blank" rel="noopener">Poly Haven</a> (CC0: Rob Tuytel, Charlotte Baglioni, Amal Kumar, Jenelle van Heerden, Dimitrios Savva y otros). Sonidos de zombis: <a href="https://opengameart.org" target="_blank" rel="noopener">OpenGameArt</a> (CC0: qubodup, Vinrax, TinyWorlds, OwlishMedia, Fupi, techiew, CleytonKauffman y otros). Personajes, vehículos, historias y misiones son ficticios.</p>
 </div>
 
 <div id="editor" class="screen" hidden></div>

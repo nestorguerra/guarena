@@ -4,7 +4,6 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { STYLE } from './style.js';
 import { ToonPipeline } from './toon.js';
 import { LoFi } from './lofi.js';
@@ -42,7 +41,6 @@ import { Decorator } from './decor.js';
 import { Shops } from './shops.js';
 import { Fishing } from './fishing.js';
 import { HomeSafe } from './home.js';
-import { Horror } from './horror.js';
 import { Zombies } from './zombies.js';
 import { Input } from './input.js';
 import { Net } from './net.js';
@@ -165,8 +163,12 @@ export class Game {
     try { this.fishing.setupMarket(this.activities); } catch (e) { console.warn('fishing', e); }
     this.homeSafe = new HomeSafe(this);
     this.invUI = new InventoryUI(this);
-    this.horrorSys = new Horror(this);
     this.zombieSys = new Zombies(this);
+    // the end-of-run screen of the zombie night: again, back to the town at dawn, or the menu
+    const endB = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener('click', () => { const e = document.getElementById('hEnd'); if (e) e.hidden = true; fn(); }); };
+    endB('hRetry', () => this.retryMode());
+    endB('hMenu', () => { this.setMode('normal'); if (this.ui.onMenu) this.ui.onMenu(); });
+    endB('hTown', () => this.setMode('normal', { dawn: true }));
     this.net = new Net(this); // multiplayer (only connects when the page comes from servidor.py)
     this.mode = 'normal';
     this.hud.weapon();
@@ -231,7 +233,6 @@ export class Game {
     this.camera.updateProjectionMatrix();
     if (this.composer) { this.composer.setSize(w, h); this.bloom.setSize(w, h); }
     if (this.toon) this.toon.setSize(w, h);
-    if (this.retroComposer) this.retroComposer.setSize(w, h);
     const radar = this.ui.radar;
     const size = Math.round(w < 520 ? Math.min(128, w * 0.34) : h <= 500 ? Math.min(112, h * 0.3) : Math.min(230, Math.max(150, Math.min(w, h) * 0.24)));
     const dpr = Math.min(2, devicePixelRatio || 1);
@@ -332,7 +333,6 @@ export class Game {
       this.showEnd('TE HAN MORDIDO', Z.wave > 0 ? `Aguantaste hasta la oleada ${Z.wave}, ${kills}.` : `No llegaste ni a la primera oleada.`, false, 'zombis');
       return;
     }
-    if (this.horrorSys.active) { this.horrorSys.caught('No has sobrevivido'); return; }
     this.state = 'wasted';
     if (this.activities) this.activities.reset();
     if (p.vehicle) p.exitVehicle(true);
@@ -536,7 +536,7 @@ export class Game {
       input.endFrame();
       return;
     }
-    if (this.state === 'play' && dtReal > 0 && dtReal < 0.1 && !this.retro) this.adaptResolution(dtReal);
+    if (this.state === 'play' && dtReal > 0 && dtReal < 0.1) this.adaptResolution(dtReal);
     if (playing) {
       // time of day
       const nh = this.sky.hour + dt / (this.mode === 'zombis' ? 600 : 90); // the zombie dusk lasts
@@ -601,7 +601,6 @@ export class Game {
       if (this.phone) { this.phone.update(dt); input.phoneOpen = this.phone.open; }
       if (this.fm) this.fm.update(dt);
       if (this.mode === 'normal' && !this.interior) { this.merendero.update(dt); this.mercadillo.update(dt); }
-      if (this.horrorSys.active) this.horrorSys.update(dt);
       if (this.zombieSys.active) this.zombieSys.update(dt);
       this.effects.update(dt);
       this.weapons.tracers.update(dt);
@@ -706,15 +705,14 @@ export class Game {
       this.bloom.radius = lerp(0.3, 0.6, night);
     }
     const wv = this.interior && this.windowView && this.windowView.render(); // the street, drawn for the windows
-    if (this.retro && this.retroComposer) { this.retroPass.uniforms.uTime.value = performance.now() / 1000; this.retroComposer.render(); }
-    else this.renderView(this.camera);
+    this.renderView(this.camera);
     if (wv) this.windowView.after();
     // first-person gun on top (in the anime look, through the same tone curve: CustomToneMapping)
-    if (this.viewModel && this.state === 'play' && !this.retro) this.viewModel.render(this.renderer);
+    if (this.viewModel && this.state === 'play') this.viewModel.render(this.renderer);
   }
 
-  // ------------------------------------------------------------ game modes: normal · terror · extremo · zombis
-  // back on your feet after the end of a zombie night or a horror game (the menu, «Seguir en Guareña»…)
+  // ------------------------------------------------------------ game modes: normal · zombis
+  // back on your feet after the end of a zombie night (the menu, «Seguir en Guareña»…)
   revive() {
     const p = this.player;
     if (!p || !(p.mode === 'dead' || p.mode === 'busted' || p.health <= 0)) return;
@@ -723,7 +721,6 @@ export class Game {
     this.canvas.style.filter = ''; this.timeScale = 1;
   }
   setMode(id, opts = {}) {
-    if (this.horrorSys.active) this.horrorSys.stop();
     if (this.zombieSys.active) this.zombieSys.stop();
     if (this.state === 'ended') this.state = 'play';
     this.revive();
@@ -732,8 +729,7 @@ export class Game {
     document.body.dataset.mode = id;
     this.missions.setVisible(id === 'normal');
     for (const d of this.interiors.doors) d.spr.visible = false;
-    if (id === 'terror' || id === 'extremo') this.horrorSys.start(id);
-    else if (id === 'zombis') this.zombieSys.start();
+    if (id === 'zombis') this.zombieSys.start();
     else if (opts.dawn) {
       this.sky.hour = 7.2;
       const d = this.interiors.doors[0];
@@ -744,56 +740,7 @@ export class Game {
     }
   }
 
-  // PS1/VHS-style post filter for the horror modes: low-res pixels, reduced colour with ordered dithering, grain, vignette
-  setRetro(on, k = 1) {
-    const r = this.renderer;
-    this.retro = on ? k : 0;
-    this.canvas.classList.toggle('retro', !!on);
-    if (on) {
-      if (!this.retroComposer) {
-        const rt = new THREE.WebGLRenderTarget(innerWidth, innerHeight, { type: THREE.HalfFloatType });
-        const c = new EffectComposer(r, rt);
-        c.addPass(new RenderPass(this.scene, this.camera));
-        c.addPass(new OutputPass());
-        this.retroPass = new ShaderPass({
-          uniforms: { tDiffuse: { value: null }, uRes: { value: new THREE.Vector2(400, 300) }, uTime: { value: 0 }, uK: { value: 1 } },
-          vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
-          fragmentShader: `uniform sampler2D tDiffuse; uniform vec2 uRes; uniform float uTime; uniform float uK; varying vec2 vUv;
-            float bayer(vec2 p) { int x = int(mod(p.x, 4.0)), y = int(mod(p.y, 4.0)); int i = x + y * 4;
-              float m[16] = float[16](0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0); return m[i] / 16.0; }
-            void main() {
-              vec2 cell = floor(vUv * uRes);
-              vec2 px = (cell + 0.5) / uRes;
-              px.x += sin(px.y * 160.0 + uTime * 2.7) * 0.0009 * uK;
-              vec3 c = texture2D(tDiffuse, px).rgb;
-              float lv = mix(40.0, 18.0, uK);
-              c = floor(c * lv + bayer(cell)) / lv;
-              float n = fract(sin(dot(vUv * (uTime + 3.1), vec2(12.9898, 78.233))) * 43758.5453);
-              c += (n - 0.5) * 0.08 * uK;
-              vec2 q = vUv - 0.5; c *= 1.0 - dot(q, q) * 1.5 * uK;
-              c *= 1.0 - 0.06 * uK * step(0.5, fract(vUv.y * uRes.y * 0.5));
-              gl_FragColor = vec4(clamp(c, 0.0, 1.0), 1.0);
-            }`,
-        });
-        c.addPass(this.retroPass);
-        this.retroComposer = c;
-      }
-      this.retroPass.uniforms.uK.value = k;
-      const w = Math.round(lerp(560, 360, k));
-      const ar = innerWidth > 0 && innerHeight > 0 ? innerHeight / innerWidth : 0.5625; // hidden tab: no NaN pixel grid
-      this.retroPass.uniforms.uRes.value.set(w, Math.round(w * ar));
-      if (this._prPrev === undefined) this._prPrev = r.getPixelRatio();
-      r.setPixelRatio(Math.min(this._prPrev, 0.8));
-      this.retroComposer.setPixelRatio(r.getPixelRatio());
-    } else if (this._prPrev !== undefined) {
-      r.setPixelRatio(this._prPrev);
-      if (this.composer) this.composer.setPixelRatio(this._prPrev);
-      this._prPrev = undefined;
-    }
-    this.resize();
-  }
-
-  // end-of-run screen shared by the horror and zombie modes
+  // end-of-run screen of the zombie night
   showEnd(title, sub, win, mode) {
     const $ = (id) => document.getElementById(id);
     const e = $('hEnd');
