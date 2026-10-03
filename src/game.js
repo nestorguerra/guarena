@@ -178,7 +178,7 @@ export class Game {
     // post-processing: the anime look draws its ink lines and grade in one last pass (no bloom); the real one blooms
     if (STYLE.anime) {
       this.toon = new ToonPipeline(r, { msaa: this.qKey === 'baja' ? 0 : 4 });
-      this.toon.setLook(this.save.look || 'manga'); // (the look on trial: Ajustes › Estética)
+      this.toon.setLook(this.save.look || 'manga'); // (the look: Ajustes › Estética)
       r.toneMapping = THREE.CustomToneMapping; // (what is drawn straight to the screen gets the pipeline's curve)
     } else if (q.bloom) {
       const rt = new THREE.WebGLRenderTarget(innerWidth, innerHeight, { type: THREE.HalfFloatType, samples: 4 });

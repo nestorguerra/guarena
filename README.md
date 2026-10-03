@@ -14,9 +14,8 @@ dibujados a partir de la profundidad, texturas repintadas en colores planos, cie
 copas redondeadas y caras de ojos grandes y piel lisa. El aspecto fotográfico de antes sigue en *Ajustes › Estilo
 visual › Realista*.
 
-En pruebas, *Ajustes › Estética* cambia al momento el último paso de dibujo por seis estéticas buscadas en Extremadura:
-Tierra (los ocres de Ortega Muñoz), Zurbarán (tenebrismo), Cal y añil (tintas planas de pueblo encalado), Mosaico
-emeritense, Grabado y Acuarela de dehesa.
+En *Ajustes › Estética* el manga se cambia al momento por la **Acuarela de dehesa**: aguadas claras sobre papel de
+grano, el pigmento acumulado donde se tocan dos colores, el papel en blanco para las luces y un lápiz suave debajo.
 
 ![Guareña desde el aire: la Iglesia de Santa María y la Plaza de España con el Ayuntamiento](docs/portada.jpg)
 

@@ -1,5 +1,5 @@
 // Dev-only: the same views of Guareña in every look of the last pass (toon.js LOOKS) → .snaps/lk_<look>_<view>.jpg
-//   const K = await import('/tools/lookshots.js?' + Date.now()); await K.shoot(K.views(), { looks: ['manga', 'tierra'] })
+//   const K = await import('/tools/lookshots.js?' + Date.now()); await K.shoot(K.views(), { looks: ['manga', 'acuarela'] })
 import * as THREE from 'three';
 import { LOOKS } from '/src/toon.js';
 const G = () => window.game;
