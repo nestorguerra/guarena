@@ -16,8 +16,9 @@ DYN_AUDIO_RE = re.compile(r"^let GameAudio;\n(?:.*\n){1,3}?if \(typeof GameAudio
 
 
 # binary assets travel as text: a base-85 code (5 characters per 4 bytes, against base 64's 4 per 3 — about 0.7 MB less
-# page) whose alphabet is printable ASCII without " & ' < > \ ` $ %, so it sits in a JSON string inside <script> as is
-B85 = ''.join(chr(c) for c in range(33, 127) if chr(c) not in '"&\'<>\\`$%')
+# page) whose alphabet is printable ASCII without " \ < (so it sits in a JSON string inside <script> as is) and without
+# { } @ [ ] | (random runs of those read as template placeholders and diff markers to the artifact host's checks)
+B85 = ''.join(chr(c) for c in range(33, 127) if chr(c) not in '"\\<{}@[]|')
 assert len(B85) == 85
 
 
@@ -170,9 +171,10 @@ def main():
         for rel in asset_files:
             with open(os.path.join(src_assets, rel), 'rb') as f:
                 emb[rel] = b85(f.read())
+        emb['__enc'] = 'b85'  # (the code the copies are in: src/assets.js reads it)
         blob = json.dumps(emb, separators=(',', ':'))
         assert '</script' not in blob and '\\' not in blob
-        page += '<script type="application/json" id="assetdata" data-enc="b85">' + blob + '</script>\n'
+        page += '<script type="application/json" id="assetdata">' + blob + '</script>\n'
     # the public multiplayer server, if there is one (GUARENA_MP_URL=https://… python3 tools/build.py): the copies that
     # cannot host a game themselves (the published page, GitHub Pages) offer to go there
     mp_url = os.environ.get('GUARENA_MP_URL', '').strip()

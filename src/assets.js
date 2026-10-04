@@ -32,7 +32,7 @@ export function loadImage(url) {
 
 // the page's copies are base-85 text (tools/build.py: 5 characters per 4 bytes, an alphabet that needs no escaping
 // inside a JSON string in a <script>), or base 64 in older pages
-const B85 = '!#()*+,-./0123456789:;=?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[]^_abcdefghijklmnopqrstuvwxyz{|}~';
+const B85 = "!#$%&\'()*+,-./0123456789:;=>?ABCDEFGHIJKLMNOPQRSTUVWXYZ^_`abcdefghijklmnopqrstuvwxyz~";
 let B85I = null;
 function fromB85(s) {
   if (!B85I) { B85I = new Uint8Array(128); for (let i = 0; i < 85; i++) B85I[B85.charCodeAt(i)] = i; }
@@ -57,7 +57,7 @@ function embedded(path) {
     embed = null;
     try {
       const el = document.getElementById('assetdata');
-      if (el) { embed = JSON.parse(el.textContent); embedEnc = el.dataset.enc || 'b64'; }
+      if (el) { embed = JSON.parse(el.textContent); embedEnc = embed.__enc || 'b64'; }
     } catch (e) { embed = null; }
   }
   const txt = embed && embed[path];
