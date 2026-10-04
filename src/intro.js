@@ -1,17 +1,29 @@
 // The way into the game (the anime look): while the town is still being built, a drone's view of Guareña painted from
 // exactly this camera (assets/intro.jpg, inlined in the page) drifts slowly closer; when the town is ready the live
-// view takes over from the same point and flies on down to Álex, standing in a street that looks up at Santa María,
-// and ends in the camera behind him: you are playing. No menus on the way.
+// view takes over from the same point and flies on down to Annie, at her door in calle Malfeitos, and ends in the
+// camera behind her: you are playing. No menus on the way.
 import * as THREE from 'three';
 import { polySample } from './util.js';
+import { protagonist } from './characters.js';
 
 export const INTRO = { fov: 48, aspect: 16 / 9, zoomMax: 1.34, zoomTime: 26, flight: 7.2, hour: 10.6 };
 
-// where Álex starts, and the drone's first camera: the same every time, from the map (tools/intro.js paints the
-// picture from it)
+// where the protagonist starts, and the drone's first camera: the same every time, from the map (tools/intro.js paints
+// the picture from it)
 export function introPlan(g) {
   const lm = g.world.landmarks.poi, map = g.map;
   const C = lm.churchTower || lm.plaza || { x: 0, z: 0 };
+  const home = protagonist().start;
+  if (home) {
+    // Annie's door: she starts facing up her street; the drone's picture looks over the roofs from beyond her house
+    // towards the tower of Santa María, and the flight comes round and down to her
+    const P = new THREE.Vector3(home.x, 0, home.z), heading = Number.isFinite(home.heading) ? home.heading : 0;
+    const dir = new THREE.Vector3(Math.sin(heading), 0, Math.cos(heading)), side = new THREE.Vector3(-dir.z, 0, dir.x);
+    const vc = new THREE.Vector3(C.x - P.x, 0, C.z - P.z).normalize(), sc = new THREE.Vector3(-vc.z, 0, vc.x);
+    const T = P.clone().addScaledVector(vc, 34);
+    const D0 = P.clone().addScaledVector(vc, -165).addScaledVector(sc, 55).add(new THREE.Vector3(0, 150, 0));
+    return { P, dir, side, heading, T, D0, church: C };
+  }
   const tmp = {};
   let best = null;
   for (const e of map.edges) {

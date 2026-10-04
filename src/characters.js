@@ -36,6 +36,9 @@ export const PLAYER_PRESETS = [
   { hq: true, id: 'annie', v: 3, name: 'Annie', gender: 'f', age: 24, bio: 'Latina, morena y de las que no paran. Cada mañana sale de casa, en la calle Malfeitos, con su camiseta de Hello Kitty y ganas de conocer cada rincón de Guareña.', skin: 2, hair: 1, hairStyle: 'largo', top: '#f4f4f0', topStyle: 'tshirt', print: 'kitty', bottom: '#e87aa4', bottomStyle: 'skirt', skirtLen: 'short', shoes: '#f2f2f2', height: 0.97, build: 0.9, slim: 1, eyes: '#3a2416', start: { x: 111.9, z: -171.4, heading: 0.05 } },
   { hq: true, id: 'adri', name: 'Adri', gender: 'm', bio: 'Se sabe todos los atajos del pueblo y nunca dice que no a un plan.', skin: 1, hair: 0, hairStyle: 'corto', top: '#88a9c9', topStyle: 'shirt', bottom: '#1f2d44', bottomStyle: 'shorts', shoes: '#f2f2f2', accessory: 'gorra', accessoryColor: '#b8302a', build: 1.0, eyes: '#3a2416' },
 ];
+// who you are in the anime look (the game's own way in, no chooser): Annie, from her door in calle Malfeitos
+export const PROTAGONIST = 'annie';
+export function protagonist() { return PLAYER_PRESETS.find((p) => p.id === PROTAGONIST) || PLAYER_PRESETS[0]; }
 
 // pedestrians wear shapes from a pool built once (a few dozen bodies, faces, haircuts and outfits from the same
 // generator as the editor, so the workers are not swamped), each one in its own colours, patterns and accessories

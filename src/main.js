@@ -1,7 +1,7 @@
 // Boot, menus (title flyover, character select with live 3D preview in the Plaza de España), pause & settings.
 import * as THREE from 'three';
 import { Game, QUALITY } from './game.js';
-import { PLAYER_PRESETS, SKIN, HAIR, CLOTH, mhTexReady } from './characters.js';
+import { PLAYER_PRESETS, SKIN, HAIR, CLOTH, mhTexReady, protagonist } from './characters.js';
 import { PERKS } from './perks.js';
 import { colorFor } from './net.js';
 import { newRoomCode } from './online.js';
@@ -137,12 +137,12 @@ async function beginIntro(pic) {
   const g = game, cam = g.camera;
   const plan = introPlan(g);
   g.sky.hour = INTRO.hour;
-  // Álex already in his street, the game started behind the picture (its HUD hidden until the flight has landed)
+  // Annie already at her door, the game started behind the picture (its HUD hidden until the flight has landed)
   g.pendingMode = 'normal';
-  g.start(PLAYER_PRESETS[0], { at: { x: plan.P.x, z: plan.P.z, heading: plan.heading } });
-  if (g.weapons && g.weapons.cur !== 'punos') { g.weapons.select('punos'); if (g.weapons.syncModel && g.player.char) g.weapons.syncModel(g.player.char); } // (empty-handed on his street; the rest stays in his pockets)
+  g.start(protagonist(), { at: { x: plan.P.x, z: plan.P.z, heading: plan.heading } });
+  if (g.weapons && g.weapons.cur !== 'punos') { g.weapons.select('punos'); if (g.weapons.syncModel && g.player.char) g.weapons.syncModel(g.player.char); } // (empty-handed at her door; the rest stays in her bag)
   $('hud').hidden = true;
-  // his own figure built, its skin and eyes painted, before the drone comes down to him (the picture drifts on meanwhile)
+  // her own figure built, its skin and eyes painted, before the drone comes down to her (the picture drifts on meanwhile)
   for (let t = 0; t < 15000 && !(g.player.char && g.player.char.ready); t += 50) await new Promise((r) => setTimeout(r, 50));
   await Promise.race([mhTexReady(), new Promise((r) => setTimeout(r, 5000))]);
   // where the game's own camera will be: the end of the flight
@@ -390,7 +390,7 @@ function startGame() {
 // ------------------------------------------------------------ multiplayer lobby
 let mpUnsub = null, selReturn = null;
 const esc = (t) => String(t ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
-function mpDesc() { return game.save.custom ? { ...game.save.custom } : { ...PLAYER_PRESETS[0] }; }
+function mpDesc() { return STYLE.anime ? { ...protagonist() } : game.save.custom ? { ...game.save.custom } : { ...protagonist() }; } // (the anime look is always Annie)
 function mpName() { return (game.save.mpName || '').trim() || mpDesc().name || 'Jugador'; }
 async function openMulti() {
   mode = 'mp';
@@ -722,7 +722,7 @@ function setModeSel(m) {
 }
 // with a character already chosen, Play goes straight in with them: say so
 function playLabel() {
-  const who = game && game.save && game.save.custom && game.save.custom.name;
+  const who = STYLE.anime ? protagonist().name : game && game.save && game.save.custom && game.save.custom.name;
   const base = who ? 'Continuar' : 'Jugar';
   $('bPlay').textContent = selMode === 'normal' ? (who ? `Continuar · ${who}` : 'Jugar') : `${base} · Zombis`;
 }
@@ -837,7 +837,7 @@ function wire() {
   document.querySelectorAll('#modeSeg button').forEach((b) => b.addEventListener('click', () => { audio.unlock(); audio.sfx('ui_select'); setModeSel(b.dataset.mode); }));
   setModeSel(game.save.modePref || 'normal');
   ui.onMenu = () => { $('hEnd').hidden = true; game.state = 'paused'; game.persist(); showMenu(); };
-  click('bPlay', () => { if (STYLE.anime) { previewDesc = { ...PLAYER_PRESETS[0] }; startGame(); } else if (game.save.custom) { previewDesc = { ...game.save.custom }; startGame(); } else openSelect(); });
+  click('bPlay', () => { if (STYLE.anime) { previewDesc = { ...protagonist() }; startGame(); } else if (game.save.custom) { previewDesc = { ...game.save.custom }; startGame(); } else openSelect(); });
   click('bMulti', openMulti);
   click('mpBack', () => { game.net.leave(); showMenu(); });
   click('mpReady', () => { const net = game.net; if (net.online && !net.connected) { if (!net.connecting) net.connect(mpName(), mpDesc()).then(renderMulti); renderMulti(); return; } const playing = [...net.players.values()].some((p) => p.playing); net.setReady(net.online || playing ? true : !net.ready); });

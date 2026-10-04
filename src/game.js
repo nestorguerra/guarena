@@ -12,7 +12,7 @@ import { MapData } from './mapdata.js';
 import { World } from './world.js';
 import { SkySystem } from './sky.js';
 import { shared } from './materials.js';
-import { CharacterFactory, PLAYER_PRESETS, pedShapes } from './characters.js';
+import { CharacterFactory, PLAYER_PRESETS, protagonist, pedShapes } from './characters.js';
 import { installHero, loadHero } from './hero.js';
 import { COP_DESC } from './police.js';
 import { Fleet } from './fleet.js';
@@ -99,7 +99,7 @@ export class Game {
     this.chars = new CharacterFactory(this.qKey === 'baja' ? { q: 1.3, lodNear: 7 } : this.qKey === 'media' ? { lodNear: 10 } : {});
     installHero(this.chars); this.heroLoad = loadHero(); // (the protagonist's body and motion capture, unzipped meanwhile)
     // (the anime look has one protagonist, Álex the courier; the photographic one keeps the saved character)
-    const firstDesc = STYLE.anime ? PLAYER_PRESETS[0] : this.save.custom || PLAYER_PRESETS[0];
+    const firstDesc = STYLE.anime ? protagonist() : this.save.custom || protagonist();
     this.chars.prebuild([firstDesc], 10);
     this.chars.prebuild(PLAYER_PRESETS, 8);
     this.chars.prebuild(pedShapes(), 6);
