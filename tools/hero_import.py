@@ -18,7 +18,8 @@ OUT = os.path.join(ROOT, 'assets', 'hero')
 YCUT, NECK_X = 5.92, 0.64          # the head region of tools/mh_import.py: the body is everything else
 
 # the hero's build (the same numbers go to the head in the game: see HERO_MH in src/hero.js)
-HERO = dict(g=1.0, wt=0.44, mu=0.62)
+HERO = dict(g=1.0, wt=0.38, mu=0.5)   # (a lean courier: average muscle — more made the deltoids and the trapezius a weightlifter's)
+SHOULDER_DROP = 0.14                  # (decimetres: how far the arms are let down from MakeHuman's square shoulders)
 MACROS = {
     'macrodetails/caucasian-male-young': 1.0,
 }
@@ -91,6 +92,39 @@ def main():
         targets.append((read_target(p), w))
     P = apply_targets(V, targets)
     print('targets', {k: round(v, 3) for k, v in tw.items()})
+    # --- sloping shoulders: MakeHuman's average man carries his shoulders square and high; a lean eighteen-year-old's
+    # fall away from the neck. The arms (and the outer end of each collarbone, more the further out) are let down a
+    # little; the joints with them
+    joints0 = dict(sk['joints'])
+    body_vs = set(v for f, g in zip(F, FG) if g == 'body' for v, _ in f)
+    def chain(root):
+        out, todo = set(), [root]
+        while todo:
+            b = todo.pop(); out.add(b)
+            todo += [c for c, d in sk['bones'].items() if d.get('parent') == b]
+        return out
+    sst = lambda a, b, x: (lambda t: t * t * (3 - 2 * t))(min(1.0, max(0.0, (x - a) / (b - a))))
+    def cpos(name):
+        return centroid(P, joints0[name]) if name in joints0 else None
+    shift = {}
+    for sd in ('L', 'R'):
+        arm = chain('upperarm01.' + sd)
+        c0, c1 = cpos('clavicle.%s____head' % sd), cpos('upperarm01.%s____head' % sd)
+        wa, wc = {}, {}
+        for mb, lst in W.items():
+            for v, w in lst:
+                if mb in arm: wa[v] = wa.get(v, 0.0) + w
+                elif mb in ('clavicle.' + sd, 'shoulder01.' + sd): wc[v] = wc.get(v, 0.0) + w
+        for v in set(wa) | set(wc):
+            if v not in body_vs: continue
+            f = wa.get(v, 0.0) + wc.get(v, 0.0) * sst(abs(c0[0]), abs(c1[0]), abs(P[v][0]))
+            shift[v] = shift.get(v, 0.0) + min(1.0, f)
+        for b in arm:
+            for e in ('head', 'tail'):
+                shift[b + '____' + e] = 1.0
+        shift['clavicle.%s____tail' % sd] = 1.0
+    for v, f in shift.items():
+        if isinstance(v, int): P[v] = [P[v][0], P[v][1] - SHOULDER_DROP * f, P[v][2]]
     # --- joints (MakeHuman's joint cubes, morphed with the body)
     joints = dict(sk['joints'])
     obj_groups = {}
@@ -103,7 +137,8 @@ def main():
         if isinstance(spec, list):
             ps = [jpos(s) for s in spec]
             return [sum(p[i] for p in ps) / len(ps) for i in range(3)]
-        return centroid(P, joints[spec])
+        c = centroid(P, joints[spec])
+        return [c[0], c[1] - SHOULDER_DROP * shift.get(spec, 0.0), c[2]]  # (the joint cubes are not skinned: let down here)
     # decimetres, origin at the hips → metres, the soles on the ground
     body = [f for f, g in zip(F, FG) if g == 'body']
     head_faces = set(i for i, f in enumerate(body) if all(V[v][1] > YCUT and (abs(V[v][0]) < NECK_X or V[v][1] > 6.35) for v, _ in f))

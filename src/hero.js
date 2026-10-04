@@ -62,7 +62,7 @@ const FULL_BASES = new Set(['sit', 'drive', 'lie', 'sitTalk', 'sitFan', 'moto', 
 
 const _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _m = new THREE.Matrix4(), _v = new THREE.Vector3();
 const _t1 = new THREE.Vector3(), _t2 = new THREE.Vector3(), _t3 = new THREE.Vector3(), _t4 = new THREE.Vector3(), _h = new THREE.Vector3(), _k = new THREE.Vector3(), _a = new THREE.Vector3();
-const _X = new THREE.Vector3(1, 0, 0), _Z = new THREE.Vector3(0, 0, 1);
+const _X = new THREE.Vector3(1, 0, 0), _Z = new THREE.Vector3(0, 0, 1), _q0 = new THREE.Quaternion();
 const _qt = new THREE.Quaternion(), _qs = new THREE.Quaternion(), _qf = new THREE.Quaternion(), _qp = new THREE.Quaternion(), _qu = new THREE.Quaternion(), _ql = new THREE.Quaternion();
 
 export class Hero extends Character {
@@ -316,6 +316,8 @@ export class Hero extends Character {
       if (w > 0) b.quaternion.slerp(proc[n], w);
     }
     B.hips.position.copy(this.mp.hips).lerp(procHips, wAll);
+    // a trainer's sole is stiff: the toes bend with it about half as far as a bare foot's (the capture is barefoot-ish)
+    B.toeL.quaternion.slerp(_q0, 0.5); B.toeR.quaternion.slerp(_q0, 0.5);
     // the real fingers follow the old hand bones (the proximal joints with the hand's curl, the others with the tip's)
     this.fingers();
     this.shoulders();
@@ -333,7 +335,7 @@ export class Hero extends Character {
       const pk = this.packS || (this.packS = { x: 0, vx: 0, z: 0, vz: 0, y: 0, vy: 0 });
       const idt = 1 / Math.max(dt, 1e-3), acc = (sp - (this._spPrev ?? sp)) * idt, hy = B.hips.position.y, hv = (hy - (this._hy ?? hy)) * idt;
       this._spPrev = sp; this._hy = hy;
-      const tx = clamp(-acc * 0.02 + Math.abs(hv) * 0.04 + 0.04 * Math.min(1, sp / 4), -0.3, 0.35), tz = clamp(-(opts.turn || 0) * 0.05 * Math.min(1, sp / 2), -0.2, 0.2);
+      const tx = clamp(-acc * 0.015 + Math.abs(hv) * 0.02, -0.12, 0.12), tz = clamp(-(opts.turn || 0) * 0.04 * Math.min(1, sp / 2), -0.15, 0.15); // (it rides against the back: small swings)
       const k = 140, c = 11, h = Math.min(dt, 1 / 30);
       pk.vx += (k * (tx - pk.x) - c * pk.vx) * h; pk.x += pk.vx * h;
       pk.vz += (k * (tz - pk.z) - c * pk.vz) * h; pk.z += pk.vz * h;
@@ -452,7 +454,7 @@ export class Hero extends Character {
       // the arm's direction in the collarbone's frame: how far it is raised out to the side (0 hanging, π/2 level)
       _v.set(0, -1, 0).applyQuaternion(arm.quaternion);
       const abd = Math.atan2(sg * _v.x, -_v.y); // (outwards positive)
-      const bind = 0.72, k = clamp((abd - bind) / 3, -0.3, 0.35); // (a third of the way from the bind angle)
+      const bind = 0.72, k = clamp((abd - bind) / 2.4, -0.42, 0.35); // (two fifths of the way from the bind angle: hanging arms let the shoulders slope)
       _q.setFromAxisAngle(_Z, sg * k);
       clav.quaternion.multiply(_q);
       arm.quaternion.premultiply(_q.invert());
