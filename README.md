@@ -95,5 +95,11 @@ pueden jugar online (navegadores sin WebRTC) enlazan con él desde la pantalla *
   [OpenGameArt](https://opengameart.org) (CC0).
 - Caras, ojos, cejas, pestañas y peinados: [MakeHuman](http://www.makehumancommunity.org) (CC0: la malla base,
   sus deformaciones y los recursos del sistema). `tools/mh_import.py` los convierte en `assets/mh/`.
+- El cuerpo del protagonista, su esqueleto, sus pesos de piel y sus expresiones faciales: también de
+  [MakeHuman](http://www.makehumancommunity.org) (CC0); `tools/hero_import.py` los convierte en `assets/hero/body.bin.gz`.
+- Captura de movimiento del protagonista: *The data used in this project was obtained from
+  [mocap.cs.cmu.edu](http://mocap.cs.cmu.edu). The database was created with funding from NSF EIA-0196217.*
+  (CMU Graphics Lab Motion Capture Database: se puede incluir en un producto, no revender los datos).
+  `tools/mocaplab.js` la adapta al esqueleto del juego en `assets/hero/moves.bin.gz`.
 - Personajes, vehículos, historias y misiones son ficticios. Los bares y comercios llevan nombres inventados:
   ningún negocio real aparece por su nombre.

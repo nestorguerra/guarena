@@ -1612,7 +1612,8 @@ export function charBuilderMain(mhLib) {
     const p = MHL.morphMH(D, w);
     const J = MHL.jointMH(D, p, 'joint-head'), k = 0.1 * H;
     const q = new Float32Array(D.nR * 3);
-    for (let i = 0; i < D.nR; i++) for (let a = 0; a < 3; a++) q[i * 3 + a] = (p[i * 3 + a] - J[a]) * k + MH_A[a] * H;
+    const A0 = spec.mhA || MH_A;
+    for (let i = 0; i < D.nR; i++) for (let a = 0; a < 3; a++) q[i * 3 + a] = (p[i * 3 + a] - J[a]) * k + A0[a] * H;
     const at = (name) => MHL.jointMH(D, q, name);
     const eyeL = at('joint-l-eye'), eyeR = at('joint-r-eye');
     // the skull under the hair: how high, wide, far back and forward the crown goes above the brows
@@ -2144,7 +2145,8 @@ export function charBuilderMain(mhLib) {
     const hair = mh && (mh.hair || spec.hair === 'calvo') ? beardOnly(R, 0.008 * q, spec) : hairLayer(R, 0.008 * q, spec.hair, spec); if (hair) L.hair = hair; // (MakeHuman's haircut: cards, in mhParts; bald: painted)
     const hat = hatLayer(R, 0.009 * q, spec.hat); if (hat) L.hat = hat;
     if (spec.bag) L.bag = bagLayer(R, 0.013 * q, L.top);
-    if (spec.only) for (const k in L) if (!spec.only.includes(k)) delete L[k];
+    if (spec.headOnly) for (const k in L) delete L[k];
+    else if (spec.only) for (const k in L) if (!spec.only.includes(k)) delete L[k];
     // the top of the shoulders (trapezius, the outer end of the collarbone) rides on the collarbone
     const trapPost = (x, y, z, acc) => {
       const c = acc.chest;
@@ -2226,7 +2228,7 @@ export function charBuilderMain(mhLib) {
       if (spec.glasses) glassesMesh(Aa, R);
       if (spec.earrings) earringsMesh(Aa, R);
       if (spec.watch) watchMesh(Aa, R);
-      if (spec.top === 'hoodie') for (const s of [-1, 1]) { // the drawstrings: out of the neckline, hanging on the chest
+      if (spec.top === 'hoodie' && L.top) for (const s of [-1, 1]) { // the drawstrings: out of the neckline, hanging on the chest
         const pts = [[s * 0.03, 1.452, 0.1], [s * 0.031, 1.41, 0.12], [s * 0.033, 1.36, 0.13], [s * 0.035, 1.31, 0.13], [s * 0.036, 1.27, 0.128]]
           .map(([x, y, z]) => onSurface(L.top, [x * S, y * S, z * S * R.W], 0.0034 * S));
         tubeMesh(Aa, pts, 0.0028 * S, REG.lace, 'chest', lo ? 3 : 5);
@@ -2244,7 +2246,8 @@ export function charBuilderMain(mhLib) {
     };
     // the MakeHuman head, its edge stitched onto the sculpted neck (the neck's field without the clip)
     let mhP = [];
-    if (mh) {
+    if (mh && spec.headOnly) mhP = mhParts(R, mh, null, spec.hat);
+    else if (mh) {
       t = Date.now();
       const nl = headLayer(R, 0.01, 9);
       nl.buildHash(0.03);

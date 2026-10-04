@@ -13,6 +13,7 @@ import { World } from './world.js';
 import { SkySystem } from './sky.js';
 import { shared } from './materials.js';
 import { CharacterFactory, PLAYER_PRESETS, pedShapes } from './characters.js';
+import { installHero, loadHero } from './hero.js';
 import { COP_DESC } from './police.js';
 import { Fleet } from './fleet.js';
 import { Traffic } from './traffic.js';
@@ -96,6 +97,7 @@ export class Game {
     progress('Leyendo el callejero de Guareña…', 0.03);
     // characters are sculpted in background workers while the town is being built
     this.chars = new CharacterFactory(this.qKey === 'baja' ? { q: 1.3, lodNear: 7 } : this.qKey === 'media' ? { lodNear: 10 } : {});
+    installHero(this.chars); this.heroLoad = loadHero(); // (the protagonist's body and motion capture, unzipped meanwhile)
     // (the anime look has one protagonist, Álex the courier; the photographic one keeps the saved character)
     const firstDesc = STYLE.anime ? PLAYER_PRESETS[0] : this.save.custom || PLAYER_PRESETS[0];
     this.chars.prebuild([firstDesc], 10);
@@ -107,6 +109,7 @@ export class Game {
     this.world = new World(this.scene, this.map, q);
     this.world.renderer = r; // (the trees bake their far-off billboards with it)
     await this.world.build((l, f) => progress(l, 0.05 + f * 0.7));
+    await this.heroLoad; // (long done by now)
     progress('Poniendo el sol sobre las Vegas…', 0.78);
     await tick();
     this.sky = new SkySystem(r, this.scene, q);

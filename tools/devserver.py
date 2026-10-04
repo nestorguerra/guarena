@@ -7,6 +7,15 @@ class H(http.server.SimpleHTTPRequestHandler):
         super().end_headers()
     def log_message(self, *a): pass
     def do_POST(self):
+        # dev only: a file made by an in-browser tool (raw bytes) into assets/hero/ or .cache/
+        s = re.match(r'^/__save\?path=((?:assets/hero|\.cache)/[\w./-]+)$', self.path)
+        if s and '..' not in s.group(1):
+            n = int(self.headers.get('Content-Length', 0))
+            data = self.rfile.read(n)
+            os.makedirs(os.path.dirname(s.group(1)), exist_ok=True)
+            with open(s.group(1), 'wb') as f:
+                f.write(data)
+            self.send_response(200); self.end_headers(); self.wfile.write(b'ok'); return
         # dev only: save a canvas snapshot (data URL body) as .snaps/<name>.jpg
         m = re.match(r'^/__snap\?name=([\w-]+)$', self.path)
         if not m:

@@ -30,18 +30,40 @@ export function loadImage(url) {
   });
 }
 
-let embed;
+// the page's copies are base-85 text (tools/build.py: 5 characters per 4 bytes, an alphabet that needs no escaping
+// inside a JSON string in a <script>), or base 64 in older pages
+const B85 = '!#()*+,-./0123456789:;=?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[]^_abcdefghijklmnopqrstuvwxyz{|}~';
+let B85I = null;
+function fromB85(s) {
+  if (!B85I) { B85I = new Uint8Array(128); for (let i = 0; i < 85; i++) B85I[B85.charCodeAt(i)] = i; }
+  const n = s.length, full = Math.floor(n / 5), rem = n % 5;
+  const out = new Uint8Array(full * 4 + (rem ? rem - 1 : 0));
+  let o = 0, i = 0;
+  const d = (k) => B85I[s.charCodeAt(k)];
+  for (let g = 0; g < full; g++, i += 5) {
+    const v = (((d(i) * 85 + d(i + 1)) * 85 + d(i + 2)) * 85 + d(i + 3)) * 85 + d(i + 4);
+    out[o++] = v >>> 24; out[o++] = (v >>> 16) & 255; out[o++] = (v >>> 8) & 255; out[o++] = v & 255;
+  }
+  if (rem) {
+    let v = 0;
+    for (let k = 0; k < 5; k++) v = v * 85 + (k < rem ? d(i + k) : 84); // (the short last group, padded with the top digit)
+    for (let k = 0; k < rem - 1; k++) out[o++] = (v >>> (24 - 8 * k)) & 255;
+  }
+  return out;
+}
+let embed, embedEnc = 'b64';
 function embedded(path) {
   if (embed === undefined) {
     embed = null;
     try {
       const el = document.getElementById('assetdata');
-      if (el) embed = JSON.parse(el.textContent);
+      if (el) { embed = JSON.parse(el.textContent); embedEnc = el.dataset.enc || 'b64'; }
     } catch (e) { embed = null; }
   }
-  const b64 = embed && embed[path];
-  if (!b64) return null;
-  const bin = atob(b64);
+  const txt = embed && embed[path];
+  if (!txt) return null;
+  if (embedEnc === 'b85') return fromB85(txt);
+  const bin = atob(txt);
   const u = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
   return u;

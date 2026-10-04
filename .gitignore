@@ -17,3 +17,6 @@ data/test.osm
 
 __pycache__/
 *.pyc
+
+# fuentes grandes para las herramientas (MakeHuman, captura de movimiento): se vuelven a bajar
+.cache/

@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import { STYLE } from './style.js';
 import { clamp, lerp, damp, dampAngle, wrapAngle, smoothstep, polyNearest, polySample, TAU } from './util.js';
+import { springCharacter, springAngle } from './springs.js';
 import { PERK, setPerk } from './perks.js';
 
 const WALK = 1.7, JOG = 3.6, SPRINT = 6.4, CROUCH = 1.15;
@@ -92,18 +93,23 @@ export class Player {
       if (!strafe && !g.interior && this.grounded) want = this.alongStreet(want);
       moveYaw = want;
       this.turnRate = strafe ? 0 : wrapAngle(want - this.heading);
-      if (!strafe) this.heading = dampAngle(this.heading, want, 12 * PERK.turn, dt);
+      if (!strafe && !this.char.isHero) this.heading = dampAngle(this.heading, want, 12 * PERK.turn, dt); // (the hero turns on its springs)
       const sprint = input.sprint && this.stamina > 0.05 && !aiming && !this.crouch && !this.carry;
       const pace = lerp(PACE, JOG * PERK.run, smoothstep(RUN_AFTER, RUN_AFTER + 0.9, this.holdT || 0));
       target = this.crouch ? CROUCH * Math.max(0.4, mag) : aiming ? WALK * 1.25 * Math.max(0.5, mag) : sprint ? SPRINT * PERK.run * Math.max(0.6, mag) : mag < 0.5 ? PACE * 0.8 : pace * mag;
       if (this.carry) target = Math.min(target, 2.4); // a box or a tray in the hands
       if (sprint) this.stamina = Math.max(0, this.stamina - dt * 0.12 * PERK.stamina); else this.stamina = Math.min(1, this.stamina + dt * 0.2 * PERK.regen);
     } else { this.turnRate = 0; this.stamina = Math.min(1, this.stamina + dt * 0.3 * PERK.regen); }
-    const hs = Math.hypot(this.vel.x, this.vel.z);
-    const ns = damp(hs, target, this.grounded ? 10 * PERK.turn : 1.5, dt);
-    const vy = strafe ? moveYaw : this.heading; // strafe while aiming / in first person
-    this.vel.x = Math.sin(vy) * ns;
-    this.vel.z = Math.cos(vy) * ns;
+    let ns;
+    const hero = !!this.char.isHero, mm = hero ? this.heroSprings(dt, target, moveYaw, mag > 0.05, strafe, camYaw) : null;
+    if (hero) ns = Math.hypot(this.vel.x, this.vel.z);
+    else {
+      const hs = Math.hypot(this.vel.x, this.vel.z);
+      ns = damp(hs, target, this.grounded ? 10 * PERK.turn : 1.5, dt);
+      const vy = strafe ? moveYaw : this.heading; // strafe while aiming / in first person
+      this.vel.x = Math.sin(vy) * ns;
+      this.vel.z = Math.cos(vy) * ns;
+    }
     // how far you can be heard (metres): the police and people inside houses notice you within it
     this.noise = !this.grounded ? 6 : this.crouch ? (ns > 0.3 ? 1.2 : 0.4) : ns > 4.2 ? 13 : ns > 2.2 ? 7 : ns > 0.3 ? 3.5 : 0.8;
     // jump & gravity
@@ -147,9 +153,35 @@ export class Player {
     // standing and saying a line: the hands talk too
     if (talking && ns < 0.3 && !this.char.base && (!g.weapons || g.weapons.cur === 'punos')) { this.char.setBase('talk'); this.talkBase = true; }
     else if (this.talkBase && (!talking || ns >= 0.3)) { if (this.char.base === 'talk') this.char.setBase(null); this.talkBase = false; }
-    this.char.update(dt, ns, { grounded: this.grounded, vy: this.vel.y, turn: this.turnRate, fidget: bare && !g.cam.fp && !this.crouch && !talking, crouch: this.crouch, moveDir, talking });
+    this.char.update(dt, ns, { grounded: this.grounded, vy: this.vel.y, turn: this.turnRate, fidget: bare && !g.cam.fp && !this.crouch && !talking, crouch: this.crouch, moveDir, talking, mm });
     if (g.weapons) g.weapons.postPose(this, dt); // gun in both hands (after the body is posed)
     this.syncChar();
+  }
+
+  // the hero's movement (Daniel Holden's spring character): the velocity chases the one the stick asks for and the
+  // facing chases the way it points, both critically damped, so the body arcs round a turn, slows through a reversal
+  // and pivots, and its motion capture is matched to where these springs say it will be (the trajectory)
+  heroSprings(dt, target, moveYaw, moving, strafe, camYaw) {
+    const s = this.spr || (this.spr = { x: [0, 0], v: [this.vel.x, this.vel.z], a: [0, 0], yaw: { x: this.heading, v: 0 }, goal: [0, 0] });
+    if (Math.abs(s.v[0] - this.vel.x) + Math.abs(s.v[1] - this.vel.z) > 0.5) { s.v[0] = this.vel.x; s.v[1] = this.vel.z; s.a[0] = s.a[1] = 0; } // (pushed, stopped by a wall…)
+    const sp = moving ? target : 0;
+    s.goal[0] = Math.sin(moveYaw) * sp; s.goal[1] = Math.cos(moveYaw) * sp;
+    const hl = this.grounded ? (sp > 4.5 ? 0.32 : 0.22) / Math.sqrt(PERK.turn) : 1.2; // (a sprint takes longer to build and to brake)
+    s.x[0] = s.x[1] = 0;
+    springCharacter(s.x, s.v, s.a, s.goal, hl, dt);
+    this.vel.x = s.v[0]; this.vel.z = s.v[1];
+    // facing: where the stick points while it is held (the crosshair when aiming); a stop keeps the last one
+    const want = strafe ? camYaw : moving ? moveYaw : s.yaw.x;
+    s.yaw.x = this.heading;
+    springAngle(s.yaw, want, strafe ? 0.06 : 0.14 / PERK.turn, dt);
+    this.heading = s.yaw.x;
+    // all of it in the character's own frame (side +x = its left, forward +z) for the motion matching
+    const h = this.heading, c = Math.cos(h), sn = Math.sin(h);
+    const loc = (wx, wz, out) => { out[0] = wx * c - wz * sn; out[1] = wx * sn + wz * c; return out; };
+    const m = this.mmOpts || (this.mmOpts = { vel: [0, 0], goal: [0, 0], acc: [0, 0], turn: 0, yawVel: 0, halfLife: 0.22, turnHalfLife: 0.14 });
+    loc(s.v[0], s.v[1], m.vel); loc(s.goal[0], s.goal[1], m.goal); loc(s.a[0], s.a[1], m.acc);
+    m.turn = wrapAngle(want - h); m.yawVel = s.yaw.v; m.halfLife = hl; m.turnHalfLife = strafe ? 0.06 : 0.14;
+    return m;
   }
 
   // walking a street, the way you go settles on the street's own direction (a diagonal or a curving one too), unless
@@ -182,6 +214,7 @@ export class Player {
     if (ch.rag) { ch.ragPos(this.pos); this.pos.y = ch.rag.floorY; return; }
     o.position.copy(this.pos);
     o.rotation.set(0, this.heading, 0);
+    if (ch.afterMove) ch.afterMove(); // (the hero's feet locked to the ground, now that the body is where it goes)
   }
   // the floor and the walls a falling body meets (indoors too)
   ragEnv() {

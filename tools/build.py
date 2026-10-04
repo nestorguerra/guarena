@@ -14,6 +14,28 @@ IMPORT_RE = re.compile(r"^import\s+(.+?)\s+from\s+'([^']+)';\s*$", re.M)
 DYN_AUDIO_RE = re.compile(r"^let GameAudio;\n(?:.*\n){1,3}?if \(typeof GameAudio !== 'function'\).*\n", re.M)
 
 
+
+# binary assets travel as text: a base-85 code (5 characters per 4 bytes, against base 64's 4 per 3 — about 0.7 MB less
+# page) whose alphabet is printable ASCII without " & ' < > \ ` $ %, so it sits in a JSON string inside <script> as is
+B85 = ''.join(chr(c) for c in range(33, 127) if chr(c) not in '"&\'<>\\`$%')
+assert len(B85) == 85
+
+
+def b85(data):
+    out, n = [], len(data)
+    pad = (-n) % 4
+    data = data + b'\0' * pad
+    A = B85
+    for i in range(0, len(data), 4):
+        v = int.from_bytes(data[i:i + 4], 'big')
+        d4 = v % 85; v //= 85
+        d3 = v % 85; v //= 85
+        d2 = v % 85; v //= 85
+        d1 = v % 85; v //= 85
+        out.append(A[v] + A[d1] + A[d2] + A[d3] + A[d4])
+    t = ''.join(out)
+    return t[:len(t) - pad] if pad else t
+
 def read(p):
     with open(p, encoding='utf-8') as f:
         return f.read()
@@ -130,7 +152,7 @@ def main():
     dist = os.path.join(ROOT, 'dist')
     src_assets = os.path.join(ROOT, 'assets')
     asset_files = sorted(os.path.relpath(os.path.join(d, f), src_assets).replace(os.sep, '/')
-                         for d, _, fs in os.walk(src_assets) for f in fs if f != 'meta.json' and f != 'intro.jpg' and not f.startswith('.'))
+                         for d, _, fs in os.walk(src_assets) for f in fs if f != 'meta.json' and f != 'intro.jpg' and f != 'rig.json' and not f.startswith('.'))  # (hero/rig.json: for the tools only)
     for sub in ('data', 'assets'):
         if os.path.isdir(os.path.join(dist, sub)): shutil.rmtree(os.path.join(dist, sub))
     os.makedirs(dist, exist_ok=True)
@@ -147,8 +169,10 @@ def main():
         emb = {}
         for rel in asset_files:
             with open(os.path.join(src_assets, rel), 'rb') as f:
-                emb[rel] = base64.b64encode(f.read()).decode('ascii')
-        page += '<script type="application/json" id="assetdata">' + json.dumps(emb, separators=(',', ':')) + '</script>\n'
+                emb[rel] = b85(f.read())
+        blob = json.dumps(emb, separators=(',', ':'))
+        assert '</script' not in blob and '\\' not in blob
+        page += '<script type="application/json" id="assetdata" data-enc="b85">' + blob + '</script>\n'
     # the public multiplayer server, if there is one (GUARENA_MP_URL=https://… python3 tools/build.py): the copies that
     # cannot host a game themselves (the published page, GitHub Pages) offer to go there
     mp_url = os.environ.get('GUARENA_MP_URL', '').strip()

@@ -76,6 +76,7 @@ async function boot(hot = {}) {
   // the look (anime unless the player chose the photographic one): it has to be set before anything is built
   let style = null;
   try { style = JSON.parse(store?.getItem('guarena_save') || '{}').style; } catch (e) { /* ignore */ }
+  try { const u = new URLSearchParams(location.search).get('estilo'); if (u) style = u; } catch (e) { /* (?estilo=real: a look for this visit only) */ }
   setStyle(style || 'anime');
   if (STYLE.anime) installToonChunks();
   document.body.dataset.look = STYLE.name;

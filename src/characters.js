@@ -21,7 +21,7 @@ export const PLAYER_PRESETS = [
   // Álex, el protagonista (a la manera del mensajero del juego web Messenger): un chaval repartidor, melena negra con
   // flequillo, sudadera naranja con capucha, mochila roja con su sobre blanco, bermudas cargo, calcetines blancos y
   // zapatillas rojas de suela blanca. v: sube al cambiar el preset para renovar partidas guardadas.
-  { hq: true, id: 'alex', v: 2, name: 'Álex', gender: 'm', age: 18, mhG: 0.62, bio: 'Repartidor. Conoce cada callejón entre Santa María y San Gregorio.',
+  { hq: true, id: 'alex', v: 3, hero: true, heroHair: 'peinado', name: 'Álex', gender: 'm', age: 18, mhG: 0.62, bio: 'Repartidor. Conoce cada callejón entre Santa María y San Gregorio.',
     skinColor: '#f1d4bd', hairColor: '#15161a', hairStyle: 'melena', top: '#e2793e', topStyle: 'hoodie', bottom: '#77795a', bottomStyle: 'bermuda',
     shoes: '#c53b34', shoeStyle: 'sneaker', sole: '#f2efe8', laces: '#f2efe8', accessory: 'mochila', bagColor: '#a6353a', bagMark: true,
     height: 0.8, build: 0.88, slim: 1, headScale: 1.24, fringe: 0.004, hem: [-0.068, 0.03, 0.012], eyes: '#2b1d14', face: [-1, -0.5, 0.5, -1, -0.5] },
@@ -223,7 +223,7 @@ const SLEEVE = { tshirt: 0.13, polo: 0.13, blouse: 0.12, tank: 0, shirt: 0.5, ho
 // ---------------------------------------------------------------- colours per region (see REG in charbuild.js)
 const C = (h) => new THREE.Color(h);
 function shade(c, k) { return c.clone().multiplyScalar(k); }
-function palette(desc) {
+export function palette(desc) {
   const skin = C(desc.skinColor || SKIN[desc.skin ?? 1]);
   const hair = C(desc.hairColor || HAIR[desc.hair ?? 0]);
   const top = C(desc.top || '#ffffff'), bot = C(desc.bottom || '#2f4f7a'), shoe = C(desc.shoes || '#222222');
@@ -1346,7 +1346,7 @@ export class CharacterFactory {
   }
   releaseMaterial(m) { if (this.matPool.length < 24) this.matPool.push(m); }
   create(desc, statue = false) {
-    const c = new Character(desc, this, statue);
+    const c = desc.hero && !statue && this.heroClass && this.heroClass.ready() ? new this.heroClass(desc, this) : new Character(desc, this, statue);
     this.live.add(c);
     return c;
   }
@@ -1618,11 +1618,11 @@ export class Character {
     this.desc = desc;
     this.factory = factory;
     this.statue = statue;
-    this.spec = factory.spec(desc);
+    this.spec = this.makeSpec ? this.makeSpec(desc, factory) : factory.spec(desc); // (a subclass may build its own: the hero)
     this.key = this.spec.key;
     this.object = new THREE.Group();
     const byName = {}, list = [];
-    for (const b of factory.B.rig(this.spec)) {
+    for (const b of this.rigBones ? this.rigBones() : factory.B.rig(this.spec)) {
       const o = new THREE.Bone();
       o.name = b.name;
       o.position.fromArray(b.off);
