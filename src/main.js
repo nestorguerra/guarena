@@ -148,6 +148,8 @@ async function beginIntro(pic) {
   // where the game's own camera will be: the end of the flight
   g.cam.update(0, g.input);
   const endPos = cam.position.clone(), endLook = g.cam.target.clone(), endFov = g.cam.fov;
+  // (inside 388 Pueblos: not before the page has faded into the picture)
+  if (window.guarenaHold) await Promise.race([window.guarenaHold, new Promise((r) => setTimeout(r, 90000))]);
   // the live camera exactly where the picture has got to, the picture frozen there
   const s = pictureScale(pic.img);
   pic.img.style.transition = 'none'; pic.img.style.transform = `scale(${s})`;
@@ -158,6 +160,7 @@ async function beginIntro(pic) {
   flight = new IntroFlight(plan, cam.position, cam.fov, endPos, endLook, endFov);
   introBits = { pic, t: 0 };
   pic.box.classList.add('out'); // (the picture fades into the live view)
+  if (window.guarenaTell) window.guarenaTell('live');
   mode = 'intro';
   // the first touch or key wakes the sound (browsers keep it asleep until then)
   const wake = () => { audio.unlock(); removeEventListener('pointerdown', wake); removeEventListener('keydown', wake); };
@@ -180,6 +183,7 @@ function introFrame(dt) {
   g.render();
   if (flight.done) { // landed: you are playing
     flight = null;
+    if (window.guarenaTell) window.guarenaTell('play');
     $('hud').hidden = false;
     ui.touch.classList.add('playing');
     mode = 'play';

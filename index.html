@@ -698,14 +698,55 @@ body.contemplar #hud .tr, body.contemplar #hud .radarWrap, body.contemplar #hud 
   // drifting closer at once (a CSS transition, smooth while the page loads and builds the town)
   var look = 'anime';
   try { look = JSON.parse(localStorage.getItem('guarena_save') || '{}').style === 'real' ? 'real' : 'anime'; } catch (e) { /* ignore */ }
+  try { var u = new URLSearchParams(location.search).get('estilo'); if (u) look = u === 'real' ? 'real' : 'anime'; } catch (e) { /* (?estilo=: this visit only) */ }
   document.body.dataset.look = look;
   if (look !== 'anime') return;
   var box = document.getElementById('intro'), img = document.getElementById('introImg');
   box.hidden = false;
   function fit() { var vw = innerWidth, vh = innerHeight, k = Math.max(vw / 1920, vh / 1080); img.style.width = 1920 * k + 'px'; img.style.height = 1080 * k + 'px'; img.style.left = (vw - 1920 * k) / 2 + 'px'; img.style.top = (vh - 1080 * k) / 2 + 'px'; }
   fit(); addEventListener('resize', fit);
-  function go() { img.classList.add('on'); requestAnimationFrame(function () { requestAnimationFrame(function () { img.style.transition = 'transform 26s cubic-bezier(0.25, 0.55, 0.35, 1), opacity 0.8s'; img.style.transform = 'scale(1.34)'; }); }); }
-  if (img.complete && img.naturalWidth) go(); else img.addEventListener('load', go);
+  // inside 388 Pueblos (?desde=388, in its iframe) the page zooms down to this very view first: the picture is up and
+  // still until its word ('guarena:go', with the moment its drift began on the page's clock: however late this busy
+  // page hears it, the picture drifts from where the page's camera already is), and the flight down to Annie
+  // (main.js) waits until the page has faded into the picture ('guarena:shown')
+  function tell(what) { try { if (window.parent !== window) window.parent.postMessage({ type: 'guarena:' + what }, '*'); } catch (e) { /* ignore */ } }
+  window.guarenaTell = tell;
+  var embedded = false;
+  try { embedded = window.parent !== window && new URLSearchParams(location.search).get('desde') === '388'; } catch (e) { /* ignore */ }
+  var loaded = false, wanted = !embedded, started = false, since = 0;
+  function frames(n, fn, ms) { var done = false, once = function () { if (!done) { done = true; fn(); } }; (function f(k) { requestAnimationFrame(function () { if (k > 1) f(k - 1); else once(); }); })(n); setTimeout(once, ms); }
+  function go() {
+    if (started) return;
+    started = true;
+    img.classList.add('on');
+    // (a page that is not being drawn, an iframe still hidden: no frames come, so a timer too)
+    frames(2, function () {
+      var late = since ? Math.max(0, Math.min(25000, Date.now() - since)) : 0;
+      getComputedStyle(img).transform; // (from where it is now)
+      img.style.transition = 'transform 26s cubic-bezier(0.25, 0.55, 0.35, 1) ' + -late + 'ms, opacity 0.8s'; img.style.transform = 'scale(1.34)';
+      getComputedStyle(img).transform; // (and from now)
+      if (embedded) frames(2, function () { tell('picture'); }, 400); else tell('picture');
+    }, 150);
+  }
+  function onLoad() {
+    loaded = true;
+    if (embedded) img.classList.add('on'); // (painted now, so it is there whenever the page fades into it)
+    if (wanted) go(); else tell('ready');
+  }
+  if (embedded) {
+    var shown;
+    window.guarenaHold = new Promise(function (r) { shown = r; });
+    addEventListener('message', function (e) {
+      if (e.source !== window.parent || !e.data) return;
+      if (e.data.type === 'guarena:go' || e.data.type === 'guarena:shown') {
+        if (!since && typeof e.data.t === 'number') since = e.data.t;
+        wanted = true;
+        if (loaded) go();
+      }
+      if (e.data.type === 'guarena:shown') shown();
+    });
+  }
+  if (img.complete && img.naturalWidth) onLoad(); else img.addEventListener('load', onLoad);
 })();</script>
 <div id="loading" class="screen">
   <div class="brand"><span class="big">Guareña</span><span class="sub"><i></i>Vegas Altas · Extremadura</span></div>
